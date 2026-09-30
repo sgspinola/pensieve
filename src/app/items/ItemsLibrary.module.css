@@ -1,0 +1,300 @@
+.section {
+  margin-top: var(--space-6);
+}
+
+.headingRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.heading {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-4);
+}
+
+/* Sits above the whole search/tag-filter row (see its use in ItemsLibrary.tsx,
+   outside `.searchArea`), centered against the full page-shell width rather
+   than just `.searchArea`'s narrower 66.666%. */
+.searchHeading {
+  text-align: center;
+}
+
+.addItemLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  white-space: nowrap;
+  transition: box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.addItemLink:hover,
+.addItemLink:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--color-accent);
+  background: rgba(var(--color-accent-rgb), 0.08);
+}
+
+/*
+ * Centers the search input and filter chip row as one focused search area
+ * at two-thirds of the section's width on non-mobile viewports, so they
+ * read as a single column rather than spanning the full workspace width.
+ * Below the 480px breakpoint (matching Header.module.css's convention),
+ * reverts to full width to match the existing mobile layout.
+ */
+.searchArea {
+  width: 100%;
+}
+
+@media (min-width: 481px) {
+  .searchArea {
+    width: 66.666%;
+    margin-inline: auto;
+  }
+}
+
+/*
+ * The item search box and the tag-filter box side by side, each in its own
+ * column — stacked below the 481px breakpoint (matching `.searchArea`'s own
+ * breakpoint above) since two search boxes sharing a row isn't usable at
+ * that width.
+ */
+.searchRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+@media (min-width: 481px) {
+  .searchRow {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+}
+
+.searchColumn,
+.tagFilterColumn {
+  min-width: 0;
+}
+
+@media (min-width: 481px) {
+  /* 3:2 split — search stays the wider field, tag-filter narrower. */
+  .searchColumn {
+    flex: 3;
+  }
+
+  .tagFilterColumn {
+    flex: 2;
+  }
+}
+
+.filterField {
+  margin-bottom: var(--space-4);
+}
+
+/*
+ * Ticket 03: the tag cloud's own wrapper, separate from `.searchArea` so it
+ * isn't squeezed to that container's 66.666% width — capped at 170ch to
+ * match the study page's `.panelWide` (StudySession.module.css), letting it
+ * span far more of the page shell (also 170ch-capped; see page-shell.module.css)
+ * than the search box/kind-chip row above it.
+ */
+.tagCloudArea {
+  width: 100%;
+  max-width: 170ch;
+  margin-inline: auto;
+  margin-top: var(--space-5);
+}
+
+/*
+ * The tag-filter box fills its column in `.searchRow` (`.tagFilterColumn`),
+ * left-aligned to match `.searchHeading`/`.label` in the item search column
+ * beside it — no longer a narrow, centered fixed-width field, since it's no
+ * longer positioned above the (separately laid out) tag cloud.
+ *
+ * Deliberately does NOT `composes: filterField from "@/app/TagFilterInput.module.css"`
+ * (unlike StudySession.module.css's equivalent class) — TagFilterInput.module.css
+ * already composes several of ITS classes (.filterInputWrap/.cursorCue) from
+ * THIS file, so composing back from it here would form a `composes` cycle
+ * between the two modules. Turbopack's dev bundler can't resolve that cycle:
+ * it throws "Cannot define property ..., object is not extensible" on any
+ * page importing either module. So the base layout (display/flex-direction/
+ * gap) is duplicated directly from TagFilterInput.module.css's `.filterField`
+ * instead of composed.
+ */
+.tagFilterField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+  width: 100%;
+  margin-bottom: var(--space-4);
+}
+
+/*
+ * Kind chips get their own full-width row, centered under the search/tag-
+ * filter row above them (decoupled from the now-narrower search column, same
+ * as the tag cloud below); the tag cloud (TagCloud) occupies its own row
+ * below this one.
+ */
+.kindChipRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.chip {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.chip:hover:not(.chipActive),
+.chip:focus-visible:not(.chipActive) {
+  color: var(--color-text);
+}
+
+.chipActive {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.searchInputWrap {
+  position: relative;
+}
+
+.searchField {
+  composes: fieldTight from "@/app/form-controls.module.css";
+  /*
+   * `--font-body` (IBM Plex Sans) is proportional, not monospace, so `1ch`
+   * per typed character (below) would drift out of sync with the real text
+   * width. Pinned to `--font-display` (JetBrains Mono) specifically so the
+   * `ch`-unit math stays exact — this field's look was already
+   * terminal/monospace-flavored, so this isn't a visual regression.
+   */
+  font-family: var(--font-display);
+  /*
+   * The real caret would otherwise blink alongside `.cursorCue` at a
+   * different position — `.cursorCue` stands in for it exactly via the
+   * `ch` unit below, which only works because of the monospace pin above.
+   */
+  caret-color: transparent;
+}
+
+/*
+ * Tracks the typed text's end via `--char-count` (set from JS on the
+ * wrapper, since only the input's value — not CSS — knows the current
+ * length): 1ch is exactly one character's width in this monospace field, so
+ * `n` characters plus the field's own left inset (border + padding) lands
+ * the cue right after the last character, standing in for the real caret
+ * that `.searchField` hides.
+ */
+.cursorCue {
+  position: absolute;
+  top: 50%;
+  left: calc(1px + var(--space-3) + var(--char-count, 0) * 1ch);
+  width: 0.5em;
+  height: 1em;
+  transform: translateY(-50%);
+  background: var(--color-accent);
+  pointer-events: none;
+  animation: cursorBlink 1s step-end infinite;
+}
+
+@keyframes cursorBlink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) 0;
+  color: var(--color-text-muted);
+}
+
+.empty svg {
+  opacity: 0.6;
+}
+
+/*
+ * Ticket 05: dims the page while a card is expanded into its overlay.
+ * z-index sits below the overlay card's own (901, in ItemRow.module.css).
+ * Dismissing by clicking here is one of the overlay's three dismissal paths.
+ */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 900;
+}
+
+.itemList {
+  list-style: none;
+  padding: 0;
+  margin-top: var(--space-4);
+  display: grid;
+  /* min(42ch, 100%) keeps the track from exceeding the viewport on phones
+     narrower than 42ch (e.g. 375px), where a bare 42ch floor would overflow
+     since overflow-x is hidden rather than scrollable. */
+  grid-template-columns: repeat(auto-fill, minmax(min(42ch, 100%), 1fr));
+  gap: var(--space-4);
+}
+
+/* Progressive enhancement: true masonry packing (CSS Grid Lanes) where
+   supported (e.g. Safari as of 2026). Falls back to the equal-height grid
+   above everywhere else. */
+@supports (grid-template-rows: masonry) {
+  .itemList {
+    grid-template-rows: masonry;
+  }
+}
+
+/*
+ * Infinite-scroll sentinel (ticket 02): an empty grid cell the
+ * IntersectionObserver watches. It carries no visible content of its own —
+ * only `.loadingMore` inside it renders anything — so it never looks like a
+ * stray/broken card while scrolled past. Mirrors
+ * FlashcardsManager.module.css's identical sentinel.
+ */
+.sentinel {
+  min-height: 1px;
+}
+
+.loadingMore {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+.error {
+  composes: error from "@/app/form-controls.module.css";
+  margin-top: var(--space-4);
+}

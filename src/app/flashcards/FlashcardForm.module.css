@@ -1,0 +1,69 @@
+.fieldGroup {
+  margin-bottom: var(--space-4);
+}
+
+.label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.button {
+  composes: button from "@/app/form-controls.module.css";
+  width: auto;
+  display: inline-block;
+  margin-bottom: 0;
+}
+
+.buttonSecondary {
+  composes: buttonSecondary from "@/app/form-controls.module.css";
+  width: auto;
+  display: inline-block;
+  margin-bottom: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.confirmation {
+  color: var(--color-text);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-4);
+}
+
+.error {
+  composes: error from "@/app/form-controls.module.css";
+}
+
+/*
+ * Ticket 06: when this form renders inside the viewport-constrained edit
+ * modal (see FlashcardRow), the write-mode textarea's own `field-sizing:
+ * content` auto-grow (MarkdownEditor.module.css) would otherwise grow
+ * unbounded with typed content, pushing the Save/Cancel actions arbitrarily
+ * far down the modal's already-scrollable `.content` area. Capping height
+ * here (rather than in MarkdownEditor itself, which also serves the
+ * unconstrained `/flashcards/new` page and items' editors) keeps each field
+ * independently scrollable instead. `field-sizing: content` still respects
+ * `max-height`/overflow once content exceeds it, per spec, so this doesn't
+ * fight the auto-grow behavior, only bounds it.
+ */
+.modalFieldEditor :global(.w-md-editor-text-input) {
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+@media (max-width: 480px) {
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .button,
+  .buttonSecondary {
+    width: 100%;
+  }
+}

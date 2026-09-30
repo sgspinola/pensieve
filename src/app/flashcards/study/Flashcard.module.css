@@ -1,0 +1,142 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  /* Kept as its own local alias (rather than every rule below referencing
+   * --carousel-duration directly) so this file still reads standalone. */
+  --flip-duration: var(--carousel-duration);
+}
+
+/*
+ * Perspective must live on an ancestor of the element that actually rotates
+ * (.flipCard) for the rotateY to read as 3D depth rather than a flat squash.
+ * Height is driven by Motion (Flashcard.tsx animates this element's `height`
+ * to the currently showing face's measured content height) rather than
+ * flex-stretching to fill the card, so a short question and a long answer
+ * each get their own snugly-fit box instead of both locking to the taller of
+ * the two. No `min-height` here on purpose — a static floor would clamp a
+ * genuinely short face's animated `height` from ever shrinking below it; the
+ * brief pre-measurement fallback (before the first client-side layout
+ * effect lands) is instead an inline `minHeight` Flashcard.tsx applies only
+ * while `cardHeight` is still null, so it disappears the instant a real
+ * height is known rather than permanently flooring it.
+ *
+ * `overflow: hidden` matters beyond just tidiness: `.face` (below) is
+ * intrinsically sized to its own content, independent of this element's
+ * (possibly still-animating) current height — without clipping here, a face
+ * taller than the current box would visibly spill out past the card's
+ * border until the height animation catches up, instead of being
+ * progressively revealed as it grows.
+ */
+.flipScene {
+  position: relative;
+  overflow: hidden;
+  perspective: 1000px;
+}
+
+/*
+ * Ticket 04 (motion): the rotation itself is driven entirely by Motion
+ * (Flashcard.tsx animates this element's `rotateY` via its own
+ * style/animate mechanism) — no static `transform`/`transition: transform`
+ * rule lives here anymore. The `.flipped` class is still applied by
+ * Flashcard.tsx alongside Motion's animation, purely so the visibility-delay
+ * selectors below still have a synchronous, render-time hook to key off.
+ */
+.flipCard {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+/*
+ * Deliberately `top`/`left`/`right` only — no `bottom` (i.e. not `inset: 0`).
+ * Pinning all four edges would stretch this face to whatever height
+ * `.flipScene` currently has, which makes its `scrollHeight` (what
+ * Flashcard.tsx measures) collapse to just that current height instead of
+ * the face's own true content height — fine for detecting growth, but
+ * incapable of ever reporting a *shorter* height once the box has grown.
+ * Leaving `bottom` unset gives each face an intrinsic, content-driven
+ * height regardless of the container's current (mid-transition) size, so
+ * a face measures correctly whether the box needs to grow or shrink.
+ */
+.face {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  backface-visibility: hidden;
+  transition: visibility 0s linear var(--flip-duration);
+}
+
+.faceBack {
+  transform: rotateY(180deg);
+}
+
+/* Tags: mirrors FlashcardRow.module.css's/ItemRow.module.css's own
+ * `.tags`/`.tagList`/`.tagChip` chip treatment, kept as local classes here
+ * (rather than imported cross-module) consistent with how `.citation` below
+ * is already scoped to this module. */
+.tags {
+  margin-top: var(--space-2);
+  font-size: 0.8em;
+  color: var(--color-text-muted);
+}
+
+.tagList {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  vertical-align: middle;
+}
+
+.tagChip {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-bg);
+  padding: 0.1em var(--space-2);
+  font-size: 0.9em;
+}
+
+/* Source citation: a plain, small-print line under the answer — matching the
+ * existing `.meta` convention (FlashcardRow.module.css, ItemRow.module.css)
+ * — always visible alongside it, not tucked behind any expand/reveal
+ * control. `.citationIcon` mirrors FlashcardRow.module.css's own `.metaIcon`
+ * so the leading icon reads consistently wherever a source citation appears. */
+.citation {
+  margin-top: var(--space-2);
+  font-size: 0.8em;
+  color: var(--color-text-muted);
+}
+
+.citationIcon {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+/*
+ * Whichever face is front-facing at rest gets `visibility: visible` applied
+ * with no delay (so it's paintable/hit-testable the moment it becomes the
+ * front face), while the other gets `visibility: hidden` only after
+ * `--flip-duration` elapses (so it stays visible/interactive for the whole
+ * rotation and only drops out — for hit-testing, tab order, and screen
+ * readers — once the flip has visually settled). These four rules are each
+ * fully self-contained (not relying on falling back to a differently-timed
+ * base rule), so the correct delay applies symmetrically in both flip
+ * directions.
+ */
+.flipCard:not(.flipped) > .faceFront,
+.flipCard.flipped > .faceBack {
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.flipCard.flipped > .faceFront,
+.flipCard:not(.flipped) > .faceBack {
+  visibility: hidden;
+  transition-delay: var(--flip-duration);
+}

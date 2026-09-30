@@ -1,0 +1,179 @@
+.breadcrumb {
+  margin-bottom: var(--space-5);
+  font-size: 0.85rem;
+}
+
+.breadcrumbList {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.breadcrumbItem {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.breadcrumbLink {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.breadcrumbLink:hover,
+.breadcrumbLink:focus-visible {
+  text-decoration: underline;
+}
+
+.breadcrumbSeparator {
+  color: var(--color-text-muted);
+}
+
+/*
+ * The article pane's own boundary: matches the `border` + `--color-bg-panel`
+ * card convention already used by ItemRow/FlashcardRow so `/wiki`'s content
+ * pane reads as one distinct surface against the page background and the
+ * sidebar, instead of both bleeding into the same flat canvas. This also
+ * fixes rendered code blocks "for free" — `markdown-theme.module.css` maps
+ * their background to `--color-bg` (the page background), which is only
+ * visibly darker than the surrounding surface once that surrounding surface
+ * is this panel rather than the page itself.
+ */
+.card {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+  padding: var(--space-5) var(--space-6);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  letter-spacing: 0.03em;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+
+.headerActions {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-2);
+}
+
+.editButton {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-accent);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: box-shadow 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+
+.editButton:hover:not(:disabled),
+.editButton:focus-visible:not(:disabled) {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+  background: rgba(var(--color-accent-rgb), 0.08);
+}
+
+.deleteButton {
+  composes: editButton;
+  color: var(--color-danger);
+}
+
+.deleteButton:hover:not(:disabled),
+.deleteButton:focus-visible:not(:disabled) {
+  outline: none;
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 1px var(--color-danger);
+  background: rgba(var(--color-danger-rgb), 0.08);
+}
+
+.deleteButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.empty {
+  color: var(--color-text-muted);
+}
+
+.editForm {
+  max-width: 60rem;
+}
+
+.fieldGroup {
+  margin-bottom: var(--space-4);
+}
+
+.label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.button {
+  composes: button from "@/app/form-controls.module.css";
+  width: auto;
+  display: inline-block;
+  margin-bottom: 0;
+}
+
+.buttonSecondary {
+  composes: buttonSecondary from "@/app/form-controls.module.css";
+  width: auto;
+  display: inline-block;
+  margin-bottom: 0;
+}
+
+.error {
+  composes: error from "@/app/form-controls.module.css";
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: var(--space-4);
+  }
+
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .button,
+  .buttonSecondary {
+    width: 100%;
+  }
+}

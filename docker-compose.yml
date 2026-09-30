@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pensieve
+      POSTGRES_PASSWORD: pensieve
+      POSTGRES_DB: pensieve
+    ports:
+      - "5432:5432"
+    volumes:
+      - pensieve-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pensieve -d pensieve"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pensieve-postgres-data:

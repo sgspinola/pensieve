@@ -1,0 +1,325 @@
+.row {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+/*
+ * Ticket 05: the same `.row` element becomes the expand-to-overlay card by
+ * adding this class alongside it. `top`/`left` come from `computeOverlayPosition`
+ * (ticket 04) as inline styles; `opacity` is likewise driven inline so the
+ * overlay stays hidden until positioned, then fades in (transition below is
+ * automatically collapsed under `prefers-reduced-motion` by the blanket rule
+ * in globals.css). No ancestor of ItemRow sets transform/filter/perspective/
+ * will-change, so `position: fixed` here is viewport-relative with no portal
+ * needed.
+ */
+.overlay {
+  position: fixed;
+  z-index: 901;
+  width: min(80ch, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  margin-bottom: 0;
+  transition: opacity 150ms ease;
+}
+
+/*
+ * No `flex-wrap` here (unlike `.titleRow` below, which does wrap): the
+ * title's own text wraps internally via `.title`'s `overflow-wrap: anywhere`,
+ * so `.titleRow` can just shrink in place instead of dropping to a second
+ * row — which is what used to push `.iconActions` down onto its own line
+ * once a long title ran out of space. `align-items: flex-start` keeps the
+ * buttons flush with the title's first line regardless of how many lines it
+ * wraps to.
+ */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.iconActions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/*
+ * Replaces the old text badge ("TOOL"/"LINK"/...) with a same-meaning icon
+ * (kindIcon() in kind-badge.ts) so the kind indicator no longer competes
+ * with the title for row width. `role="img"`/`aria-label` carry the
+ * accessible name `kindBadgeLabel()` still provides (also used verbatim by
+ * the kind filter chips elsewhere, which keep their text labels); `title`
+ * gives the same text as a hover tooltip.
+ */
+.kindIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  /* Nudges the icon's optical center down to the text baseline next to it. */
+  margin-top: 0.15em;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: var(--space-1);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-accent);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: box-shadow 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+
+.iconButton:hover:not(:disabled),
+.iconButton:focus-visible:not(:disabled) {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+  background: rgba(var(--color-accent-rgb), 0.08);
+}
+
+.iconButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.iconButtonDanger {
+  composes: iconButton;
+  color: var(--color-danger);
+}
+
+.iconButtonDanger:hover:not(:disabled),
+.iconButtonDanger:focus-visible:not(:disabled) {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 1px var(--color-danger);
+  background: rgba(var(--color-danger-rgb), 0.08);
+}
+
+.title {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.description {
+  padding-top: var(--space-2);
+}
+
+.expandIcon {
+  display: inline-flex;
+  line-height: 1;
+  transition: transform 150ms ease;
+  flex-shrink: 0;
+}
+
+.expandIconOpen {
+  transform: rotate(180deg);
+}
+
+.blockIcon {
+  composes: expandIcon;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  margin-top: 0.2em;
+}
+
+/*
+ * Unlike `.blockIcon` above (purely decorative next to the Content block,
+ * `aria-hidden` with no handler), the Notes panel's chevron is a real toggle
+ * — but unlike before, it now drives its own local `isNotesRevealed` state
+ * (see ItemRow.tsx) rather than the card's width-expand `isExpanded`, so it
+ * sits in its own header row next to the label instead of inline with the
+ * (now independently-animated) content below. Unstyled button reset (no
+ * border/background of its own) so it reads as the same bare chevron
+ * affordance, just clickable.
+ */
+.notesToggle {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.notesToggle:hover,
+.notesToggle:focus-visible {
+  color: var(--color-accent);
+  outline: none;
+}
+
+.block {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/*
+ * Sets Notes apart as its own panel within the card (distinct from the
+ * unboxed `.block` above, used for the page body/"Content"), per the item
+ * card redesign: a tinted background + border, with the `.notesLabel`
+ * heading below naming it explicitly. Reuses the same `rgba(accent, n%)`
+ * tint convention as `.iconButton`'s hover state elsewhere in this file,
+ * just weaker (0.05 vs 0.08) since this is a resting, not a hover, state.
+ */
+.notesPanel {
+  margin-top: var(--space-3);
+  background: rgba(var(--color-accent-rgb), 0.05);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: var(--space-3);
+}
+
+/*
+ * @uiw/react-markdown-preview paints its own solid `background-color`
+ * (mapped to `--color-canvas-default`, i.e. the same opaque color as the
+ * card itself — see markdown-theme.module.css) on `.wmde-markdown`'s root.
+ * Left alone, that sits on top of `.notesPanel`'s translucent green tint as
+ * a visibly distinct rectangle. Overridden to transparent here only (not
+ * globally, and not via `--color-canvas-default` itself) so the tint shows
+ * through evenly while nested elements that still use the canvas variables
+ * (code blocks, table stripes) are untouched.
+ */
+.notesPanel :global(.wmde-markdown.wmde-markdown[data-color-mode]) {
+  background-color: transparent;
+}
+
+/*
+ * Label and reveal toggle share a row, mirroring FlashcardRow.module.css's
+ * own `.blockHeader`.
+ */
+.notesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.notesLabel {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+/*
+ * Height is animated by Motion directly on this element (ItemRow.tsx), not
+ * a CSS transition, so it can animate to the notes' actual measured full
+ * height on reveal. Unlike FlashcardRow.module.css's own
+ * `.answerRevealInner` (which collapses to 0), this collapses only to
+ * `notesCollapsedHeight` (ItemRow.tsx — capped at 10em, but only once the
+ * note is actually taller than that), so a short note is never forced to
+ * reserve dead space it doesn't need. `overflow: hidden` keeps this box's
+ * edge crisp at whatever height Motion currently has it at.
+ */
+.notesRevealInner {
+  position: relative;
+  overflow: hidden;
+}
+
+/*
+ * Applied only while collapsed and actually truncated (ItemRow.tsx's
+ * `notesInnerClass`) — mirrors MarkdownBlock.module.css's own
+ * `.clamp::after` gradient (same fade-to color), since Notes no longer
+ * delegates its clamp to MarkdownBlock's own `.clamp` class.
+ */
+.notesFade::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3em;
+  background: linear-gradient(to bottom, transparent, var(--color-bg-panel));
+  pointer-events: none;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.8em;
+  color: var(--color-text-muted);
+}
+
+.metaIcon {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.tags {
+  font-size: 0.8em;
+  color: var(--color-text-muted);
+}
+
+/*
+ * Read-only tag chips, styled after TagsInput.module.css's own `.tagChip`
+ * (the form's editable-tag chip) so a card's tags look like the same kind
+ * of object the tag input produces — just without that chip's remove
+ * button. `var(--color-bg)` (the page background, one shade off this card's
+ * own `--color-bg-panel`) reads as a subtly recessed chip against the card
+ * in both themes without reaching for the accent color.
+ */
+.tagList {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  vertical-align: middle;
+}
+
+.tagChip {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-bg);
+  padding: 0.1em var(--space-2);
+  font-size: 0.9em;
+}
+
+.footer {
+  margin-top: auto;
+  padding-top: var(--space-3);
+}
+
+.error {
+  composes: error from "@/app/form-controls.module.css";
+}
+
+.modalHeading {
+  margin: 0 0 var(--space-4);
+  font-size: 1.1rem;
+}
+
+@media (max-width: 480px) {
+  /* 2rem (32px) is comfortable with a mouse but tight for touch; bump to the
+     ~44px guideline on small/touch-sized viewports. */
+  .iconButton {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+}

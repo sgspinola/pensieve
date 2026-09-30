@@ -1,0 +1,99 @@
+.hint {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-4);
+}
+
+.field {
+  display: block;
+  width: 100%;
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  margin-bottom: var(--space-4);
+}
+
+/*
+ * Single-line fields that pair with a synthetic `.cursorCue` block (the
+ * search box, TagFilterInput) need a tight line box: the inherited
+ * `body` line-height (1.6, meant for paragraph rhythm) inflates the
+ * field's rendered height past the glyphs' own metrics, so the cue's
+ * flat geometric center and the text's visual center land at different
+ * heights. `line-height: 1` collapses that gap. Left off `.field` itself
+ * since it also backs the multi-line notes textarea (ItemForm), where
+ * 1.6 is doing real readability work.
+ */
+.fieldTight {
+  composes: field;
+  line-height: 1;
+}
+
+.field::placeholder {
+  color: var(--color-text-muted);
+}
+
+.field:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  cursor: pointer;
+  margin-bottom: var(--space-3);
+  transition: box-shadow 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+
+.button svg {
+  flex: none;
+}
+
+.button:hover:not(:disabled),
+.button:focus-visible:not(:disabled) {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+  background: rgba(var(--color-accent-rgb), 0.08);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.buttonSecondary {
+  composes: button;
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.buttonSecondary:hover:not(:disabled),
+.buttonSecondary:focus-visible:not(:disabled) {
+  border-color: var(--color-text-muted);
+  box-shadow: none;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.error {
+  color: var(--color-danger);
+  border-left: 2px solid var(--color-danger);
+  padding-left: var(--space-3);
+  font-size: 0.875rem;
+  margin-top: var(--space-3);
+}

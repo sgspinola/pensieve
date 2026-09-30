@@ -1,0 +1,78 @@
+.editor {
+  border: 1px solid var(--color-border);
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2) 0;
+  background: var(--color-bg-panel);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.tab:hover:not(.tabActive) {
+  color: var(--color-text);
+}
+
+.tabActive {
+  color: var(--color-accent);
+  border-color: var(--color-border);
+  background: var(--color-bg);
+}
+
+/*
+ * The library sizes the editor/preview via a fixed pixel `height` (default
+ * 200) applied as inline style plus internal `overflow: auto` scroll panes,
+ * with the actual `<textarea>` absolutely positioned to overlay a hidden
+ * syntax-highlight layer. None of that participates in normal flow, so
+ * auto-grow-with-content is done here purely via CSS: every fixed-height/
+ * absolute-position layer is switched to flow/auto, and the textarea itself
+ * grows with `field-sizing: content` (falls back to its native scrolling
+ * box in browsers that don't yet support it — no functional regression).
+ */
+.editor :global(.w-md-editor) {
+  height: auto !important;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.editor :global(.w-md-editor-toolbar) {
+  border-radius: 0;
+}
+
+.editor :global(.w-md-editor-content) {
+  height: auto !important;
+}
+
+.editor :global(.w-md-editor-area) {
+  overflow: visible !important;
+}
+
+.editor :global(.w-md-editor-text) {
+  min-height: auto !important;
+}
+
+.editor :global(.w-md-editor-text-input) {
+  position: static !important;
+  height: auto !important;
+  field-sizing: content;
+  min-height: 8rem;
+}
+
+.previewPane {
+  min-height: 8rem;
+  padding: var(--space-3) var(--space-4);
+}

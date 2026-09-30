@@ -1,0 +1,66 @@
+/*
+ * Ticket 01: extracted from the study page's tag-selection screen. Deliberately
+ * has no max-width/centering of its own — callers compose onto `.filterField`
+ * (see `StudySession.module.css`) to size/position the box for their own layout.
+ */
+.filterField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.filterInputWrap {
+  composes: searchInputWrap from "@/app/items/ItemsLibrary.module.css";
+  width: 100%;
+}
+
+.field {
+  composes: fieldTight from "@/app/form-controls.module.css";
+  margin-bottom: 0;
+  /* See `.searchField` in ItemsLibrary.module.css: pinned to the monospace
+     `--font-display` so `.cursorCue`'s `ch`-unit math stays exact, and hides
+     the real caret so it can't blink alongside `.cursorCue` at a different
+     position. */
+  font-family: var(--font-display);
+  caret-color: transparent;
+}
+
+/*
+ * Suppresses the browser's own `type="search"` clear icon (WebKit/Chromium
+ * draw one at the input's right edge once it has a value) so it can't
+ * overlap or fight for clicks with `.clearFilterButton`, which occupies that
+ * same spot.
+ */
+.field::-webkit-search-cancel-button,
+.field::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.cursorCue {
+  composes: cursorCue from "@/app/items/ItemsLibrary.module.css";
+}
+
+.clearFilterButton {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  transform: translateY(-50%);
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.clearFilterButton:hover,
+.clearFilterButton:focus-visible {
+  color: var(--color-text);
+}
+
+.empty {
+  color: var(--color-text-muted);
+  text-align: center;
+}

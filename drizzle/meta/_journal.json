@@ -1,0 +1,97 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788857157410,
+      "tag": "0000_faulty_slayback",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788860983883,
+      "tag": "0001_great_the_twelve",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788862342136,
+      "tag": "0002_needy_retro_girl",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788863585004,
+      "tag": "0003_redundant_the_call",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789028157897,
+      "tag": "0004_rare_power_pack",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789028958705,
+      "tag": "0005_petite_rick_jones",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789030393655,
+      "tag": "0006_robust_mentor",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789381834758,
+      "tag": "0007_mighty_arclight",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789405819526,
+      "tag": "0008_bizarre_green_goblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789920074089,
+      "tag": "0009_rename_article_kind_to_page",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789921136802,
+      "tag": "0010_charming_leo",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789921886995,
+      "tag": "0011_add_flashcard_hash_and_source_nullable",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789922313300,
+      "tag": "0012_flashcards_hash_source_not_null",
+      "breakpoints": true
+    }
+  ]
+}

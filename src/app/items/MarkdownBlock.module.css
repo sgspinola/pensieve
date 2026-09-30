@@ -1,0 +1,39 @@
+/*
+ * Container for the rendered `content`/`notes` markdown (MarkdownPreview).
+ * `min-width: 0` lets it actually shrink inside a flex row instead of
+ * forcing the row wider than its card; `overflow-wrap` guards against long
+ * unbreakable tokens (URLs, etc.) inside rendered nodes.
+ */
+.markdownBody {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Default (non-expanded) grid presentation: truncate rendered markdown to a
+ * fixed height so one item's long content doesn't dominate its row.
+ * `-webkit-line-clamp` was tried first but doesn't reliably clamp
+ * heterogeneous block content (headings, lists, tables, code blocks) across
+ * browsers, so this uses a fixed max-height plus a bottom gradient fade
+ * (via `::after`) that reads as an intentional preview cutoff rather than
+ * an abrupt hard clip. Not applied while expanded (see MarkdownBlock's
+ * `isExpanded` prop), where the full rendered content shows with no
+ * truncation.
+ */
+.clamp {
+  position: relative;
+  max-height: 10em;
+  overflow: hidden;
+}
+
+.clamp::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3em;
+  background: linear-gradient(to bottom, transparent, var(--color-bg-panel));
+  pointer-events: none;
+}

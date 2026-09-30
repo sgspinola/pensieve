@@ -1,0 +1,139 @@
+.section {
+  margin-top: var(--space-6);
+}
+
+.headingRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.heading {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-bottom: 0;
+}
+
+.actionLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.actionLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  white-space: nowrap;
+  transition: box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.actionLink:hover,
+.actionLink:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--color-accent);
+  background: rgba(var(--color-accent-rgb), 0.08);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) 0;
+  color: var(--color-text-muted);
+}
+
+.empty svg {
+  opacity: 0.6;
+}
+
+/*
+ * Ticket 05: the tag cloud's own wrapper, spanning the full page-shell width
+ * (170ch, see page-shell.module.css) rather than being squeezed by any
+ * narrower search-box container — this page has no item-text search box to
+ * share width with, unlike ItemsLibrary's `.searchArea`/`.tagCloudArea` split.
+ */
+.tagCloudArea {
+  width: 100%;
+  max-width: 170ch;
+  margin-inline: auto;
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+/*
+ * The tag-filter box itself stays a narrow, centered field above the (wide)
+ * tag cloud — same proportions as the Library/study pages' own tag-filter
+ * box. Composes the shared base layout from TagFilterInput.module.css
+ * directly (safe here, unlike ItemsLibrary.module.css's equivalent class:
+ * that file is itself composed FROM by TagFilterInput.module.css, so
+ * composing back would form a `composes` cycle Turbopack can't resolve —
+ * this module has no such existing cross-dependency).
+ */
+.tagFilterField {
+  composes: filterField from "@/app/TagFilterInput.module.css";
+  align-items: center;
+  align-self: center;
+  width: 100%;
+  max-width: 20rem;
+  margin-inline: auto;
+  margin-bottom: var(--space-4);
+}
+
+/*
+ * Ticket 02: dims the page while a card is expanded into its overlay.
+ * z-index sits below the overlay card's own (901, in FlashcardRow.module.css),
+ * mirroring ItemsLibrary.module.css's `.backdrop`. Dismissing by clicking
+ * here is one of the overlay's three dismissal paths.
+ */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 900;
+}
+
+.flashcardList {
+  list-style: none;
+  padding: 0;
+  margin-top: var(--space-4);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(42ch, 100%), 1fr));
+  gap: var(--space-4);
+}
+
+/*
+ * Infinite-scroll sentinel (ticket 04): an empty grid cell the
+ * IntersectionObserver watches. It carries no visible content of its own —
+ * only `.loadingMore` inside it renders anything — so it never looks like a
+ * stray/broken card while scrolled past.
+ */
+.sentinel {
+  min-height: 1px;
+}
+
+.loadingMore {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+.error {
+  composes: error from "@/app/form-controls.module.css";
+  margin-top: var(--space-4);
+}

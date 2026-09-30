@@ -1,0 +1,3 @@
+.field {
+  composes: field from "@/app/form-controls.module.css";
+}

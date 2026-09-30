@@ -1,0 +1,88 @@
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.newArticleButton {
+  composes: button from "@/app/form-controls.module.css";
+  width: auto;
+  align-self: flex-start;
+  margin-bottom: 0;
+}
+
+.empty {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.searchField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.searchLabel {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+/* The tree itself: no bullets, indentation comes from nested `.tree`
+   instances (one per level) rather than a flat class-driven depth count. */
+.tree {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.tree .tree {
+  margin-top: var(--space-1);
+  margin-left: var(--space-4);
+  border-left: 1px solid var(--color-border);
+  padding-left: var(--space-3);
+}
+
+.nodeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.nodeLink {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  transition: color 150ms ease;
+}
+
+.nodeLink:hover,
+.nodeLink:focus-visible {
+  color: var(--color-text);
+}
+
+.nodeLinkActive {
+  color: var(--color-accent);
+}
+
+.addChildButton {
+  flex-shrink: 0;
+  width: 1.5em;
+  height: 1.5em;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.addChildButton:hover,
+.addChildButton:focus-visible {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}

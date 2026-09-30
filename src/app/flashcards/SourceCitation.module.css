@@ -1,0 +1,27 @@
+/*
+ * Layout only — color/font-size come from the caller's own className
+ * (FlashcardRow.module.css's `.meta`, Flashcard.module.css's `.citation`),
+ * inherited down through this row. `.value` is what actually truncates: a
+ * long cheat-sheet/benchmark URL ellipsizes on one line instead of wrapping
+ * the card taller. `min-width: 0` on both the row and the value override
+ * flexbox's default "never shrink below content's min-content size", which
+ * would otherwise block the ellipsis from ever kicking in.
+ */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  min-width: 0;
+}
+
+.label {
+  flex-shrink: 0;
+}
+
+.value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

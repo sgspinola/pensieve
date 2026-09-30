@@ -1,0 +1,99 @@
+.fieldGroup {
+  margin-bottom: var(--space-4);
+}
+
+.label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.kindOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.kindOption {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.kindOption:hover:not(.kindOptionActive),
+.kindOption:focus-visible:not(.kindOptionActive) {
+  color: var(--color-text);
+}
+
+.kindOptionActive {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.button {
+  composes: button from "@/app/form-controls.module.css";
+  width: auto;
+  display: inline-block;
+  margin-bottom: 0;
+}
+
+.buttonSecondary {
+  composes: buttonSecondary from "@/app/form-controls.module.css";
+  width: auto;
+  display: inline-block;
+  margin-bottom: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.confirmation {
+  color: var(--color-text);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-4);
+}
+
+.error {
+  composes: error from "@/app/form-controls.module.css";
+}
+
+/*
+ * Ticket 07: when this form renders inside the viewport-constrained edit
+ * modal (see ItemRow), the write-mode textarea's own `field-sizing: content`
+ * auto-grow (MarkdownEditor.module.css) would otherwise grow unbounded with
+ * typed content, pushing the Save/Cancel actions arbitrarily far down the
+ * modal's already-scrollable `.content` area. Capping height here (rather
+ * than in MarkdownEditor itself, which also serves the unconstrained
+ * `/items/new` page and `/wiki`'s creation panel) keeps each field
+ * independently scrollable instead — same rule as ticket 06's
+ * `FlashcardForm.module.css` `.modalFieldEditor` (only the textarea is
+ * capped, not `.w-md-editor-content`, to avoid a redundant nested
+ * scrollbar).
+ */
+.modalFieldEditor :global(.w-md-editor-text-input) {
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+@media (max-width: 480px) {
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .button,
+  .buttonSecondary {
+    width: 100%;
+  }
+}

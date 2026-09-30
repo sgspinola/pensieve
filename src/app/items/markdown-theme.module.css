@@ -1,0 +1,85 @@
+/*
+ * Shared, global-scoped remap of @uiw/react-md-editor's / @uiw/react-markdown-
+ * preview's GitHub-primer CSS variables onto this app's own design tokens.
+ * Imported (for side effects only, no local class names used) by both
+ * MarkdownEditor and ItemRow's read-only markdown rendering so editing and
+ * reading share one visual theme instead of the library's stock GitHub dark
+ * theme.
+ *
+ * The library defines these same variables on `.wmde-markdown-var[data-
+ * color-mode]` / `.wmde-markdown[data-color-mode]` (self-referencing attribute
+ * selectors, since both components render `data-color-mode="dark"` directly
+ * on their own root element rather than only on an ancestor). Matching that
+ * exact selector shape ties on specificity with the library's rule, so each
+ * class is repeated once to win deterministically regardless of CSS source
+ * order.
+ */
+:global(.wmde-markdown-var.wmde-markdown-var[data-color-mode]),
+:global(.wmde-markdown.wmde-markdown[data-color-mode]) {
+  --color-fg-default: var(--color-text);
+  --color-fg-muted: var(--color-text-muted);
+  --color-fg-subtle: var(--color-text-muted);
+  --color-canvas-default: var(--color-bg-panel);
+  --color-canvas-subtle: var(--color-bg);
+  --color-border-default: var(--color-border);
+  --color-border-muted: var(--color-border);
+  --color-neutral-muted: rgba(var(--color-accent-rgb), 0.12);
+  --color-accent-fg: var(--color-accent);
+  --color-accent-emphasis: var(--color-accent);
+  --color-danger-fg: var(--color-danger);
+  --color-attention-fg: var(--color-accent);
+  --color-attention-subtle: rgba(var(--color-accent-rgb), 0.12);
+  --md-editor-font-family: var(--font-body);
+  --md-editor-background-color: var(--color-bg-panel);
+  --md-editor-box-shadow-color: var(--color-border);
+  font-family: var(--font-body);
+  color: var(--color-text);
+}
+
+/*
+ * Fenced code blocks already get a background-color keyed to
+ * `--color-canvas-subtle` (mapped to `--color-bg` above) and a 6px radius
+ * from the library's own stylesheet, but that alone reads as "plain text on
+ * a very slightly different fill" rather than "this is code" — exactly the
+ * `/wiki` "grill-me" page bug report (a rendered fence blending into
+ * surrounding prose). An explicit border makes a code block unmistakable
+ * regardless of how close the two background shades land in either theme,
+ * and the monospace family match keeps it visually distinct from body text.
+ */
+:global(.wmde-markdown pre) {
+  border: 1px solid var(--color-border);
+  font-family: var(--font-display);
+}
+
+/*
+ * The library defaults a fenced block's `pre > code` to `white-space: pre`
+ * plus `overflow: auto`, so any line longer than the card scrolls
+ * horizontally instead of wrapping. Wrapping reads better here — nothing
+ * in this app's rendered markdown is column-sensitive output (tables,
+ * diagrams) where preserved line breaks would matter — and
+ * `overflow-wrap: anywhere` keeps one unbroken long token (a URL, say)
+ * from forcing the card wider instead of wrapping like the rest of the line.
+ */
+:global(.wmde-markdown pre > code) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: visible;
+}
+
+/*
+ * Headings mark the start of a new section within one rendered article (the
+ * "Original source" / "Modified content" fields on a `/wiki` page, say) —
+ * extra top margin over the library's flat 24px default gives each one room
+ * to read as a section break instead of running straight into the previous
+ * section's last line. The `:first-child` reset avoids doubling up on the
+ * card's own top padding when a page opens with a heading.
+ */
+:global(.wmde-markdown h1),
+:global(.wmde-markdown h2) {
+  margin-top: var(--space-6);
+}
+
+:global(.wmde-markdown h1:first-child),
+:global(.wmde-markdown h2:first-child) {
+  margin-top: 0;
+}

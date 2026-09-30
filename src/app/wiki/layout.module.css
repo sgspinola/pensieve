@@ -1,0 +1,23 @@
+/*
+ * The two-pane layout: a fixed-ish width sidebar (the fully-expanded
+ * article tree) beside a flexible content pane rendering `{children}`
+ * (`/wiki/page.tsx` or `/wiki/[id]/page.tsx`). Stacks vertically on narrow
+ * viewports, matching the responsive breakpoints already used elsewhere in
+ * this app (e.g. Header.module.css, ItemsLibrary.module.css).
+ */
+.layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-6);
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .layout {
+    flex-direction: column;
+  }
+}

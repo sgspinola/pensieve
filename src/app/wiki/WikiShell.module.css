@@ -1,0 +1,9 @@
+.panel {
+  max-width: 640px;
+}
+
+.heading {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  margin-bottom: var(--space-4);
+}

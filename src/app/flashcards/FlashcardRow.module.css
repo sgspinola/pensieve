@@ -1,0 +1,218 @@
+.row {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+/*
+ * Ticket 02: the same `.row` element becomes the expand-to-overlay card by
+ * adding this class alongside it, verbatim from ItemRow.module.css's own
+ * `.overlay` (see its comment for the full rationale — inline `top`/`left`
+ * from `computeOverlayPosition`, inline `opacity` driven by the fade-in
+ * effect, transition auto-collapsed under `prefers-reduced-motion` by the
+ * blanket rule in globals.css).
+ */
+.overlay {
+  position: fixed;
+  z-index: 901;
+  width: min(80ch, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  margin-bottom: 0;
+  transition: opacity 150ms ease;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.iconActions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: var(--space-1);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-accent);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: box-shadow 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+
+.iconButton:hover:not(:disabled),
+.iconButton:focus-visible:not(:disabled) {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+  background: rgba(var(--color-accent-rgb), 0.08);
+}
+
+.iconButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.iconButtonDanger {
+  composes: iconButton;
+  color: var(--color-danger);
+}
+
+.iconButtonDanger:hover:not(:disabled),
+.iconButtonDanger:focus-visible:not(:disabled) {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 1px var(--color-danger);
+  background: rgba(var(--color-danger-rgb), 0.08);
+}
+
+.block {
+  margin-bottom: var(--space-3);
+}
+
+.blockLabel {
+  display: block;
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-1);
+}
+
+/*
+ * Ticket 01: the Answer's label and its reveal toggle share a row, unlike
+ * the Question's bare label above.
+ */
+.blockHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.blockHeader .blockLabel {
+  margin-bottom: 0;
+}
+
+.revealToggle {
+  composes: iconButton;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  padding: 0;
+}
+
+/*
+ * Ticket 01 (motion): the reveal/hide animation (height 0 <-> the content's
+ * real, variable height, plus opacity) is driven by Motion directly on this
+ * element in FlashcardRow.tsx, not a CSS transition, so it can animate to
+ * the content's actual measured height rather than a guessed `max-height`
+ * cap. `overflow: hidden` is what clips this element to 0 while collapsed —
+ * it's this element's own box (not just its visibility) that goes to zero,
+ * which is what the Playwright spec's `not.toBeVisible()` check on it
+ * relies on. `prefers-reduced-motion` is read explicitly via Motion's
+ * `useReducedMotion` in the component instead of relying on globals.css's
+ * blanket rule, which only silences CSS transitions, not a JS-driven
+ * animation.
+ */
+.answerRevealInner {
+  overflow: hidden;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.8em;
+  color: var(--color-text-muted);
+}
+
+.metaIcon {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.tags {
+  font-size: 0.8em;
+  color: var(--color-text-muted);
+}
+
+/*
+ * Read-only tag chips, verbatim from ItemRow.module.css's own `.tagList`/
+ * `.tagChip` (see its comment for the styling rationale) — duplicated here
+ * rather than shared since the two modules have no existing composition
+ * relationship to hang it off of.
+ */
+.tagList {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  vertical-align: middle;
+}
+
+.tagChip {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-bg);
+  padding: 0.1em var(--space-2);
+  font-size: 0.9em;
+}
+
+/*
+ * Source + Tags pinned to the card's true bottom — `margin-top: auto` inside
+ * `.row`'s flex column, verbatim from ItemRow.module.css's own `.footer`.
+ * Matters when `.row` is stretched taller than its own content by CSS
+ * Grid's default `align-items: stretch` (FlashcardsManager.module.css's
+ * `.flashcardList` grid) — e.g. a collapsed-answer card sharing a row with
+ * an expanded one — rather than only when content alone fills the row.
+ */
+.footer {
+  margin-top: auto;
+  padding-top: var(--space-3);
+}
+
+.modalHeading {
+  margin: 0 0 var(--space-4);
+  font-size: 1.1rem;
+}
+
+.expandIcon {
+  display: inline-flex;
+  line-height: 1;
+  transition: transform 150ms ease;
+  flex-shrink: 0;
+}
+
+.expandIconOpen {
+  transform: rotate(180deg);
+}
+
+.error {
+  composes: error from "@/app/form-controls.module.css";
+}
+
+@media (max-width: 480px) {
+  .iconButton {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+}

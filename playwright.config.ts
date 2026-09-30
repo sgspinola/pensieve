@@ -1,0 +1,44 @@
+import "dotenv/config";
+import { defineConfig, devices } from "@playwright/test";
+
+// A dedicated port (not the one a developer's own `next dev` would use) so
+// running `npm run test:e2e` locally never collides with a dev server
+// someone already has open. `reuseExistingServer` still lets you point this
+// at an already-running server on this port if you prefer.
+const PORT = process.env.PLAYWRIGHT_PORT ?? "3100";
+const baseURL = `http://localhost:${PORT}`;
+
+export default defineConfig({
+  testDir: "./e2e",
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 1 : 0,
+  reporter: "list",
+  globalSetup: "./e2e/global-setup.ts",
+  globalTeardown: "./e2e/global-teardown.ts",
+  use: {
+    baseURL,
+    trace: "on-first-retry",
+  },
+  // Boots the real app (same DB this repo's Vitest suite already talks to
+  // via DATABASE_URL) rather than mocking anything — these are smoke tests
+  // for the actual rendered app, not a component harness.
+  webServer: {
+    command: `npm run dev -- -p ${PORT}`,
+    url: baseURL,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        // Written by global-setup.ts: a real DB-backed session cookie, the
+        // same auth mechanism the app itself uses (see src/proxy.ts) —
+        // no WebAuthn ceremony automation needed for a logged-in smoke test.
+        storageState: "e2e/.auth/user.json",
+      },
+    },
+  ],
+});

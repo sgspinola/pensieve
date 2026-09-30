@@ -1,0 +1,21 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.heading {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+}
+
+.message {
+  color: var(--color-text-muted);
+}
+
+.retry {
+  width: auto;
+  padding-left: var(--space-6);
+  padding-right: var(--space-6);
+}

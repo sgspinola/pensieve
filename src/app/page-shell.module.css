@@ -1,0 +1,9 @@
+.shell {
+  width: 100%;
+  margin: 4rem auto;
+  padding: 0 1.5rem;
+}
+
+.wide {
+  max-width: 170ch;
+}

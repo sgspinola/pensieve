@@ -1,0 +1,87 @@
+.heading {
+  margin: 0 0 var(--space-4);
+  font-size: 1.1rem;
+}
+
+.chooser {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.optionButton {
+  composes: button from "./form-controls.module.css";
+  width: auto;
+  display: inline-flex;
+  text-align: center;
+  text-decoration: none;
+  margin-bottom: 0;
+}
+
+/*
+ * `<a>` has no native `:disabled` state, so the "no kind picked yet" state
+ * (backlog/issues/01) is expressed with `aria-disabled` instead — this
+ * mirrors `.button:disabled` in form-controls.module.css visually.
+ * `pointer-events: none` blocks mouse activation; a real `href` keeps the
+ * element keyboard-focusable regardless of `aria-disabled`, so the element
+ * also gets `tabIndex={-1}` (in ImportExportModal.tsx) to drop it from the
+ * tab order while disabled, plus a same-file `onClick` guard as a backstop
+ * against programmatic/assistive-tech activation.
+ */
+.optionButton[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.fieldLabel {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.typeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.typeOption {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.typeOption input[type="radio"] {
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.ioRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  margin-top: var(--space-4);
+}
+
+@media (max-width: 480px) {
+  .ioRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ioColumn {
+  min-width: 0;
+}
+
+.sectionHeading {
+  margin: 0 0 var(--space-2);
+  font-size: 0.95rem;
+}
+
+.error {
+  composes: error from "./form-controls.module.css";
+  margin-top: 0;
+}
