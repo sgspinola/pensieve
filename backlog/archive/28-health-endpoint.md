@@ -8,7 +8,7 @@
 
 **Completed:** on `feat/28-health-endpoint`
 
-**Pull Request:** _not yet opened — branch is local only; add the URL once pushed_
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/10
 
 - [x] New `GET` health route returns 200 with a minimal up body when `SELECT 1` succeeds
 - [x] Returns 503 with a minimal down body and no error message, stack or connection detail when the DB query fails (failure still logged server-side; a query that hasn't answered within 2s also counts as a failure, so an unreachable host doesn't hold the probe for postgres.js's 30s connect timeout)
