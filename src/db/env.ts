@@ -5,3 +5,6 @@ export function getDatabaseUrl(): string {
   }
   return connectionString;
 }
+
+// THROWAWAY (ticket 30 negative test): deliberate type error.
+export const ciOkNegativeTest: number = "not a number";
