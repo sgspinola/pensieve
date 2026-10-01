@@ -15,3 +15,13 @@ updates:
       # typescript-eslint supports 7.
       - dependency-name: "typescript"
         versions: [">=7"]
+
+  # Ticket 30: keep the SHA-pinned actions in .github/workflows current.
+  # Minor/patch bumps arrive as one grouped PR; majors stay separate.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]

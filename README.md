@@ -146,6 +146,15 @@ DATABASE_URL=postgres://pensieve:pensieve@localhost:5433/pensieve \
 npm run test:e2e
 ```
 
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request into `develop`/`main`
+and every push to them: lint (ESLint and actionlint), typecheck, unit
+(Vitest against a `postgres:17-alpine` service container), and docs-build.
+The `ci-ok` job aggregates the gates, failing if any of them didn't
+succeed, and is the one check the branch rulesets require. On PRs into
+`main`, `release-source` also fails unless the head branch is `develop`.
+
 ## Other scripts
 
 ```bash
