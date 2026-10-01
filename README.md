@@ -150,11 +150,40 @@ npm run test:e2e
 
 `.github/workflows/ci.yml` runs on every pull request into `develop`/`main`
 and every push to them: lint (ESLint and actionlint), typecheck, unit
-(Vitest against a `postgres:17-alpine` service container), and docs-build.
+(Vitest against a `postgres:17-alpine` service container), docs-build, and
+secrets (TruffleHog).
 The branch rulesets require each gate by its job name. Adding or renaming a
 job means updating the `develop` and `main` rulesets' required checks too.
 On PRs into `main`, `release-source` also fails unless the head branch is
 `develop`.
+
+### Secret scanning
+
+The `secrets` job runs [TruffleHog](https://github.com/trufflesecurity/trufflehog)
+over the PR's new commits (on a push, the pushed branch's full history) and
+fails on verified, unknown and unverified findings alike. Results also go to
+GitHub Code Scanning. Known-harmless findings (e.g. the throwaway Postgres URLs
+in this README) are listed by fingerprint, with a reason and an expiry, in
+`.github/trufflehog-allow.txt`.
+
+A local pre-commit hook runs the same scan over your staged changes, so most
+leaks never reach GitHub. Set it up once per clone:
+
+```bash
+brew install trufflehog lefthook
+lefthook install   # writes .git/hooks/pre-commit from lefthook.yml
+```
+
+### If a secret is found
+
+The repository is public, so a leaked credential must be treated as
+compromised even if the commit or image is removed:
+
+1. **Rotate the credential.** Deleting it from the branch, history or image
+   isn't enough.
+2. **Delete affected Actions artifacts and caches** that may contain it
+   (artifact deletion / `gh run delete`, `gh cache delete`).
+3. **Treat the affected workflow run logs as exposed.**
 
 ## Other scripts
 

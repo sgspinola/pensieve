@@ -121,6 +121,76 @@ jobs:
         run: |
           echo "### docs-build :white_check_mark: VitePress site built" >> "$GITHUB_STEP_SUMMARY"
 
+  # Ticket 31: TruffleHog over the PR's new commits, or the full history on
+  # a push. Fails on verified, unknown and unverified results alike: an
+  # internal credential that can't be verified still blocks.
+  secrets:
+    name: secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: TruffleHog
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # --branch pins the scan to the commit under test: without it,
+          # TruffleHog walks every fetched ref, including other PR branches.
+          range=(--branch "$GITHUB_SHA")
+          if [ "$EVENT" = "pull_request" ]; then
+            range=(--since-commit "$BASE_SHA" --branch "$HEAD_SHA")
+          fi
+          docker run --rm -v "$PWD:/repo" \
+            trufflesecurity/trufflehog:3.97.9@sha256:52e67fef4d054ecff5c2ce4b4ae376626d1ef54aa0898b53cac19c25e92e14db \
+            git file:///repo "${range[@]}" \
+            --results=verified,unknown,unverified --fail-on-scan-errors --no-update --sarif \
+            > trufflehog-raw.sarif
+      # TruffleHog has no allowlist for history, so accepted findings are
+      # dropped from the SARIF by fingerprint (.github/trufflehog-allow.txt),
+      # and the job fails on whatever remains.
+      - name: Apply allowlist
+        run: |
+          allow=$(awk -v today="$(date -u +%F)" '!/^#/ && NF >= 3 && $2 >= today { print $1 }' \
+            .github/trufflehog-allow.txt | jq -R . | jq -s .)
+          awk -v today="$(date -u +%F)" '!/^#/ && NF >= 3 && $2 < today { print "::warning::Expired TruffleHog allowlist entry " $1 " (" $2 ")" }' \
+            .github/trufflehog-allow.txt
+          jq --argjson allow "$allow" \
+            '.runs[].results |= map(select(.partialFingerprints["trufflehogFingerprint/v1"] as $f | $allow | index($f) | not))' \
+            trufflehog-raw.sarif > trufflehog.sarif
+          n=$(jq '[.runs[].results[]] | length' trufflehog.sarif)
+          if [ "$n" -gt 0 ]; then
+            jq -r '.runs[].results[] | "::error file=\(.locations[0].physicalLocation.artifactLocation.uri),line=\(.locations[0].physicalLocation.region.startLine)::\(.message.text) (fingerprint \(.partialFingerprints["trufflehogFingerprint/v1"]))"' trufflehog.sarif
+            exit 1
+          fi
+      - name: Upload SARIF
+        if: always() && hashFiles('trufflehog.sarif') != ''
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trufflehog.sarif
+          category: trufflehog-repo
+      - name: Summary
+        if: always()
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          scope=$([ "$EVENT" = "pull_request" ] && echo "PR commits" || echo "full history")
+          if [ -s trufflehog.sarif ]; then
+            n=$(jq '[.runs[].results[]] | length' trufflehog.sarif)
+            raw=$(jq '[.runs[].results[]] | length' trufflehog-raw.sarif)
+            icon=$([ "$n" -eq 0 ] && echo ":white_check_mark:" || echo ":x:")
+            echo "### secrets $icon TruffleHog ($scope): $n finding(s), $((raw - n)) allowlisted" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### secrets :x: TruffleHog ($scope) produced no SARIF" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # Required by the main ruleset: releases reach main only from develop, and
   # only from this repository (a fork's branch can also be named "develop").
   release-source:
