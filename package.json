@@ -2,6 +2,10 @@
   "name": "pensieve",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "24.x",
+    "npm": "11.16.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -53,7 +57,7 @@
     "mermaid": "11.17.2",
     "svg-pan-zoom": "3.6.2",
     "tsx": "4.23.15",
-    "typescript": "7.0.2",
+    "typescript": "6.0.3",
     "ui-ux-pro-max-cli": "2.15.0",
     "vitepress": "1.6.4",
     "vitepress-plugin-mermaid": "2.0.17",
