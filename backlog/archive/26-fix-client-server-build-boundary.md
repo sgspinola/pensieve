@@ -8,7 +8,7 @@
 
 **Completed:** on `feat/26-fix-client-server-build-boundary`
 
-**Pull Request:** _not yet opened — branch is local only; add the URL once pushed_
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/8
 
 - [x] Delete-permission predicate lives in a pure flashcards permissions module with no server imports; the flashcards client component imports it from there
 - [x] Flashcards service re-exports the predicate; existing server-side callers compile unchanged
