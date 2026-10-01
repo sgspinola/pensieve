@@ -38,6 +38,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       docker-minor-patch:
         update-types: ["minor", "patch"]
@@ -48,6 +50,8 @@ updates:
     directory: "/infra"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       terraform-minor-patch:
         update-types: ["minor", "patch"]
