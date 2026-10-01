@@ -45,9 +45,14 @@ jobs:
           docker run --rm -v "$PWD:/repo" --workdir /repo
           rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
           -color
+      - name: hadolint
+        run: >
+          docker run --rm -i
+          hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d
+          < Dockerfile
       - name: Summary
         run: |
-          echo "### lint :white_check_mark: ESLint and actionlint passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "### lint :white_check_mark: ESLint, actionlint and hadolint passed" >> "$GITHUB_STEP_SUMMARY"
 
   typecheck:
     name: typecheck
@@ -142,3 +147,89 @@ jobs:
             echo "::error::PRs into main must come from develop (got $HEAD_REPO:$HEAD_REF)"
             exit 1
           fi
+
+  # Ticket 33: the deployable arm64 image, built natively on an arm64 runner.
+  # It's scanned for embedded secrets before upload, so a leaking image is
+  # never downloadable from this public repository: Trivy covers every
+  # layer's files plus the image config (ENV, labels, build-arg history),
+  # TruffleHog's docker source the files with its own detectors. Any finding
+  # fails the job before upload-artifact; SARIF goes up either way.
+  build:
+    name: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/arm64
+          tags: pensieve:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Save image
+        run: docker save pensieve:ci -o "$RUNNER_TEMP/pensieve-image.tar"
+      - name: Trivy secret scan
+        run: >
+          docker run --rm -v "$RUNNER_TEMP:/scan:ro" -v "$PWD:/repo"
+          aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+          image --input /scan/pensieve-image.tar
+          --scanners secret --image-config-scanners secret
+          --secret-config /repo/trivy-secret.yaml
+          --exit-code 1 --format sarif --output /repo/trivy-secret.sarif
+      # Runs even when Trivy found something, so both tools report.
+      - name: TruffleHog image scan
+        if: ${{ !cancelled() && hashFiles('trivy-secret.sarif') != '' }}
+        run: |
+          today=$(date -u +%F)
+          exclude=$(awk -v today="$today" '!/^#/ && NF >= 3 && $2 >= today { print $1 }' \
+            .github/trufflehog-image-exclude.txt | paste -sd, -)
+          awk -v today="$today" '!/^#/ && NF >= 3 && $2 < today { print "::warning::Expired TruffleHog image exclusion " $1 " (" $2 ")" }' \
+            .github/trufflehog-image-exclude.txt
+          args=()
+          if [ -n "$exclude" ]; then
+            args=(--exclude-paths="$exclude")
+          fi
+          docker run --rm -v "$RUNNER_TEMP:/scan:ro" \
+            trufflesecurity/trufflehog:3.97.9@sha256:52e67fef4d054ecff5c2ce4b4ae376626d1ef54aa0898b53cac19c25e92e14db \
+            docker --image file:///scan/pensieve-image.tar "${args[@]}" \
+            --results=verified,unknown,unverified --fail --no-update --sarif \
+            > trufflehog-image.sarif
+      - name: Upload Trivy SARIF
+        if: always() && hashFiles('trivy-secret.sarif') != ''
+        # A fork PR's token can't write security events; don't fail on that.
+        continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy-secret.sarif
+          category: trivy-image-secrets
+      - name: Upload TruffleHog SARIF
+        if: always() && hashFiles('trufflehog-image.sarif') != ''
+        continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trufflehog-image.sarif
+          category: trufflehog-image
+      # Only reached when both scans passed. 1 day is the hand-off to
+      # image-scan and e2e; on develop pushes it's the deployable artifact.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pensieve-image
+          path: ${{ runner.temp }}/pensieve-image.tar
+          retention-days: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/develop') && 14 || 1 }}
+          if-no-files-found: error
+      - name: Summary
+        if: always()
+        run: |
+          count() { [ -s "$1" ] && jq '[.runs[].results[]] | length' "$1" || echo "no SARIF"; }
+          trivy=$(count trivy-secret.sarif)
+          trufflehog=$(count trufflehog-image.sarif)
+          icon=$([ "$trivy" = 0 ] && [ "$trufflehog" = 0 ] && echo ":white_check_mark:" || echo ":x:")
+          echo "### build $icon linux/arm64 image; secret findings: Trivy $trivy, TruffleHog $trufflehog" >> "$GITHUB_STEP_SUMMARY"
