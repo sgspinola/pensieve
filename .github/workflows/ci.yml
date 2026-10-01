@@ -21,6 +21,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Shared by the build job's secret scan and the trivy job's vulnerability scan.
+  TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+
 # One run per workflow + ref. Superseded PR runs are cancelled; pushes to
 # develop/main always run to completion.
 concurrency:
@@ -320,8 +324,7 @@ jobs:
         run: docker save pensieve:ci -o "$RUNNER_TEMP/pensieve-image.tar"
       - name: Trivy secret scan
         run: >
-          docker run --rm -v "$RUNNER_TEMP:/scan:ro" -v "$PWD:/repo"
-          aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+          docker run --rm -v "$RUNNER_TEMP:/scan:ro" -v "$PWD:/repo" "$TRIVY_IMAGE"
           image --input /scan/pensieve-image.tar
           --scanners secret --image-config-scanners secret
           --secret-config /repo/trivy-secret.yaml
@@ -365,8 +368,6 @@ jobs:
     permissions:
       contents: read
       security-events: write
-    env:
-      TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -376,8 +377,9 @@ jobs:
           name: pensieve-image
           path: ${{ runner.temp }}/image
       # One vulnerability DB per day: restored from the cache, or pulled from
-      # the public.ecr.aws mirror and saved by the first run of the day. It's
-      # saved before the scan, so no image-layer cache ends up in it.
+      # the public.ecr.aws mirror. As in `build`, only pushes save it (PRs can
+      # read develop's), and it's saved before the scan so no image-layer
+      # cache ends up in it.
       - name: Cache key
         id: day
         run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
@@ -393,7 +395,7 @@ jobs:
           docker run --rm -v "$RUNNER_TEMP/trivy-cache:/cache" "$TRIVY_IMAGE"
           image --cache-dir /cache --download-db-only --no-progress
           --db-repository public.ecr.aws/aquasecurity/trivy-db:2
-      - if: steps.db-cache.outputs.cache-hit != 'true'
+      - if: github.event_name == 'push' && steps.db-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/trivy-cache
@@ -421,7 +423,8 @@ jobs:
             icon=$([ "$n" -eq 0 ] && echo ":white_check_mark:" || echo ":x:")
             echo "### trivy $icon $n fixable vulnerabilit$([ "$n" -eq 1 ] && echo y || echo ies) in the image" >> "$GITHUB_STEP_SUMMARY"
             # Each result's message is "Key: value" lines (Package, Severity, ...).
-            jq -r '.runs[].results[]
+            # The first 20 are listed; the rest are in Code Scanning.
+            jq -r '[.runs[].results[]][:20][]
               | (.message.text | [split("\n")[] | capture("^(?<key>[^:]+): (?<value>.*)$")] | from_entries) as $m
               | "- `\(.ruleId)` \($m.Severity): \($m.Package) \($m["Installed Version"]), fixed in \($m["Fixed Version"])"' \
               trivy-vuln.sarif >> "$GITHUB_STEP_SUMMARY"
