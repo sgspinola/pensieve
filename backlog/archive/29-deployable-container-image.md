@@ -8,7 +8,7 @@
 
 **Completed:** on `feat/29-deployable-container-image`
 
-**Pull Request:** PR_URL_PLACEHOLDER
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/11
 
 - [x] Next config sets `output: "standalone"`
 - [x] `.dockerignore` excludes at least `.env*`, `*.pem`, `.git`, `node_modules`, `.next`, `coverage`, `logs`, `e2e/.auth`, `test-results`, `playwright-report`, `graphify-out`
