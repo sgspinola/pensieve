@@ -10,10 +10,10 @@
 
 **Pull Request:** https://github.com/sgspinola/pensieve/pull/16
 
-- [x] **secrets** job scans the PR commit range on `pull_request` and the pushed `before..after` range on `push` (revised from full history: see spec story 14) — both pass `--branch` (the PR head / pushed SHA), since without it TruffleHog also walks every other fetched ref
+- [x] **trufflehog** (originally `secrets`) job scans the PR commit range on `pull_request` and the pushed `before..after` range on `push` (revised from full history: see spec story 14) — both pass `--branch` (the PR head / pushed SHA), since without it TruffleHog also walks every other fetched ref
 - [x] Job fails on verified, unknown and unverified findings (TruffleHog's own `--fail`); false positives use inline `trufflehog:ignore` comments, applied to the README's throwaway Postgres URL and the health-route test's fake DSN
 - [x] SARIF uploaded to Code Scanning (job has `security-events: write`); step summary written
-- [x] `secrets` added to ticket 36's required-checks list — already listed there
+- [x] `trufflehog` added to ticket 36's required-checks list — already listed there
 - [x] `lefthook` config runs TruffleHog on staged changes at pre-commit — `--since-commit HEAD --branch HEAD`; without `--branch` it also scanned stashes and failed on one
 - [x] README documents installing TruffleHog and lefthook via Homebrew and running `lefthook install` once
 - [x] No `prepare` script added to `package.json`

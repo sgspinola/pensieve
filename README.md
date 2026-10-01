@@ -152,7 +152,7 @@ npm run test:e2e
 `.github/workflows/ci.yml` runs on every pull request into `develop`/`main`
 and every push to them: lint (ESLint and actionlint), typecheck, unit
 (Vitest against a `postgres:17-alpine` service container), docs-build, and
-secrets (TruffleHog).
+trufflehog.
 The branch rulesets require each gate by its job name. Adding or renaming a
 job means updating the `develop` and `main` rulesets' required checks too.
 On PRs into `main`, `release-source` also fails unless the head branch is
@@ -160,7 +160,7 @@ On PRs into `main`, `release-source` also fails unless the head branch is
 
 ### Secret scanning
 
-The `secrets` job runs [TruffleHog](https://github.com/trufflesecurity/trufflehog)
+The `trufflehog` job runs [TruffleHog](https://github.com/trufflesecurity/trufflehog)
 over just the commits under test (a PR's new commits, or a push's
 before..after range) and fails on verified, unknown and unverified findings
 alike. Results also go to GitHub Code Scanning. Older history was scanned when

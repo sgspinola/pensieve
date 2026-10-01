@@ -1,5 +1,5 @@
 # Ticket 31: local first line of defence against committing secrets; CI's
-# `secrets` job is the real gate. TruffleHog and lefthook come from Homebrew,
+# `trufflehog` job is the real gate. TruffleHog and lefthook come from Homebrew,
 # and `lefthook install` is run once by hand (see README): deliberately no npm
 # `prepare` script, so nothing here runs inside `npm ci` or the image build.
 pre-commit:

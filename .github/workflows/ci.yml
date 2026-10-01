@@ -127,8 +127,8 @@ jobs:
   # verified, unknown and unverified results alike: an internal credential
   # that can't be verified still blocks. False positives get an inline
   # `trufflehog:ignore` comment on the offending line.
-  secrets:
-    name: secrets
+  trufflehog:
+    name: trufflehog
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -165,9 +165,9 @@ jobs:
           if [ -s trufflehog.sarif ]; then
             n=$(jq '[.runs[].results[]] | length' trufflehog.sarif)
             icon=$([ "$n" -eq 0 ] && echo ":white_check_mark:" || echo ":x:")
-            echo "### secrets $icon TruffleHog: $n finding(s)" >> "$GITHUB_STEP_SUMMARY"
+            echo "### trufflehog $icon TruffleHog: $n finding(s)" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### secrets :x: TruffleHog produced no SARIF" >> "$GITHUB_STEP_SUMMARY"
+            echo "### trufflehog :x: TruffleHog produced no SARIF" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # Required by the main ruleset: releases reach main only from develop, and
