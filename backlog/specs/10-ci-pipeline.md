@@ -33,7 +33,7 @@ Before any of that can pass, two pre-existing breakages are fixed: the client/se
 11. As the maintainer, I want GitHub workflows linted, so that mistakes in the pipeline itself are caught before they run.
 12. As the maintainer, I want the Dockerfile linted, so that common image-hardening mistakes are caught at review time.
 13. As the maintainer, I want every PR's new commits scanned for secrets, so that a credential is caught before it's merged into a public repository.
-14. As the maintainer, I want every push to `develop`/`main` to scan the full git history for secrets, so that anything that slipped past PR scanning is still found.
+14. As the maintainer, I want every push to `develop`/`main` to scan the pushed commits for secrets, so that anything that slipped past PR scanning is still found. (Revised during ticket 31: originally the full history. Rescanning old commits meant keeping a custom fingerprint allowlist for findings already in history, since TruffleHog can't ignore those natively. History was scanned clean at publication and GitHub secret scanning covers it continuously, so pushes scan only `before..after`.)
 15. As the maintainer, I want the secret scan to fail on unverified as well as verified findings, so that a credential that merely couldn't be verified (e.g. an internal one) still blocks.
 16. As the maintainer, I want a local pre-commit hook that scans staged changes for secrets, so that most leaks never reach GitHub at all, where they would have to be rotated anyway.
 17. As the maintainer, I want SAST on every change, so that injection, auth and unsafe-API bugs are flagged before merge.
@@ -107,7 +107,7 @@ Before any of that can pass, two pre-existing breakages are fixed: the client/se
   - **lint:** ESLint, actionlint and hadolint.
   - **typecheck:** `tsc --noEmit`.
   - **unit:** Vitest with a `postgres:17-alpine` service container, migrated with drizzle-kit before tests.
-  - **trufflehog:** TruffleHog over the PR's commit range on `pull_request`, and the full history on `push`. Fails on verified, unknown and unverified results.
+  - **trufflehog:** TruffleHog over the PR's commit range on `pull_request`, and the pushed `before..after` range on `push`. Fails on verified, unknown and unverified results. False positives get an inline `trufflehog:ignore` comment on the offending line; there's no separate allowlist.
   - **semgrep:** `semgrep ci` authenticated with the `SEMGREP_APP_TOKEN` secret, so blocking is decided by the Semgrep dashboard policies for Code and Supply Chain. When the token is unavailable (fork PRs), it falls back to `semgrep scan` with `p/default`, `p/typescript`, `p/react`, `p/nextjs` and `p/owasp-top-ten`. Both emit SARIF. (Revised during ticket 32: the fallback blocks on any finding. Its rulesets flagged the repo's missing npm release-age and Dependabot cooldown, so `.npmrc` sets `min-release-age=7` and Dependabot a matching 7-day cooldown.)
   - **sbom:** `npm sbom --sbom-format cyclonedx --omit dev`, uploaded as an artifact.
   - **docs-build:** `npm run docs:build`.

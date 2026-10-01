@@ -8,8 +8,8 @@
 # Baseline every job follows: least-privilege permissions (read-only here,
 # extra scopes granted per job), third-party actions pinned to a full commit
 # SHA with a version comment, checkout without persisted credentials, the
-# shared Node bootstrap (.github/actions/setup-node-deps), a timeout, and a
-# short $GITHUB_STEP_SUMMARY.
+# shared Node bootstrap (.github/actions/setup-node-deps) in jobs that need
+# Node, a timeout, and a short $GITHUB_STEP_SUMMARY.
 name: CI
 
 on:
@@ -199,6 +199,55 @@ jobs:
       - name: Summary
         run: |
           echo "### docs-build :white_check_mark: VitePress site built" >> "$GITHUB_STEP_SUMMARY"
+
+  # Ticket 31: TruffleHog over just the commits under test: the PR's range,
+  # or a push's before..after. History older than that was scanned when it
+  # landed, and GitHub secret scanning covers it continuously. Fails on
+  # verified, unknown and unverified results alike: an internal credential
+  # that can't be verified still blocks. False positives get an inline
+  # `trufflehog:ignore` comment on the offending line.
+  trufflehog:
+    name: trufflehog
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: TruffleHog
+        env:
+          SINCE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # --branch pins the scan to the commit under test: without it,
+          # TruffleHog walks every fetched ref, including other PR branches.
+          docker run --rm -v "$PWD:/repo" \
+            trufflesecurity/trufflehog:3.97.9@sha256:52e67fef4d054ecff5c2ce4b4ae376626d1ef54aa0898b53cac19c25e92e14db \
+            git file:///repo --since-commit "$SINCE" --branch "$HEAD_SHA" \
+            --results=verified,unknown,unverified --fail --fail-on-scan-errors --no-update --sarif \
+            > trufflehog.sarif
+      - name: Upload SARIF
+        if: always() && hashFiles('trufflehog.sarif') != ''
+        # A fork PR's token can't write security events; don't fail on that.
+        continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trufflehog.sarif
+          category: trufflehog-repo
+      - name: Summary
+        if: always()
+        run: |
+          if [ -s trufflehog.sarif ]; then
+            n=$(jq '[.runs[].results[]] | length' trufflehog.sarif)
+            icon=$([ "$n" -eq 0 ] && echo ":white_check_mark:" || echo ":x:")
+            echo "### trufflehog $icon TruffleHog: $n finding(s)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### trufflehog :x: TruffleHog produced no SARIF" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # Required by the main ruleset: releases reach main only from develop, and
   # only from this repository (a fork's branch can also be named "develop").

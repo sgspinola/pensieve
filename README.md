@@ -124,15 +124,16 @@ docker run -d --name pensieve-db --network pensieve-net -p 5433:5432 \
   -e POSTGRES_USER=pensieve -e POSTGRES_PASSWORD=pensieve -e POSTGRES_DB=pensieve \
   postgres:17-alpine
 
+# Throwaway local credentials, passed through to both containers below
+export DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve # trufflehog:ignore
+
 # Migrate: drizzle-orm's migrator, bundled in the image; exits non-zero on failure
-docker run --rm --network pensieve-net \
-  -e DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve \
+docker run --rm --network pensieve-net -e DATABASE_URL \
   pensieve migrate.cjs
 
 # Run: its HEALTHCHECK polls /api/health (`docker ps` shows healthy/unhealthy)
 docker run -d --name pensieve-app --network pensieve-net -p 3200:3000 \
-  -e DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve \
-  pensieve
+  -e DATABASE_URL pensieve
 ```
 
 To run the e2e suite against the running image instead of `next dev`, set
@@ -151,11 +152,42 @@ npm run test:e2e
 `.github/workflows/ci.yml` runs on every pull request into `develop`/`main`
 and every push to them: lint (ESLint and actionlint), typecheck, unit
 (Vitest against a `postgres:17-alpine` service container), docs-build,
-semgrep and sbom.
+trufflehog, semgrep and sbom.
 The branch rulesets require each gate by its job name. Adding or renaming a
 job means updating the `develop` and `main` rulesets' required checks too.
 On PRs into `main`, `release-source` also fails unless the head branch is
 `develop`.
+
+### Secret scanning
+
+The `trufflehog` job runs [TruffleHog](https://github.com/trufflesecurity/trufflehog)
+over just the commits under test (a PR's new commits, or a push's
+before..after range) and fails on verified, unknown and unverified findings
+alike. Results also go to GitHub Code Scanning. Older history was scanned when
+it landed, and GitHub secret scanning keeps covering it.
+
+A known-harmless finding (e.g. a throwaway local URL or a test fixture) gets a
+`trufflehog:ignore` comment on the same line, saying why. Never ignore a real
+credential: rotate it (see below).
+
+A local pre-commit hook runs the same scan over your staged changes, so most
+leaks never reach GitHub. Set it up once per clone:
+
+```bash
+brew install trufflehog lefthook
+lefthook install   # writes .git/hooks/pre-commit from lefthook.yml
+```
+
+### If a secret is found
+
+The repository is public, so a leaked credential must be treated as
+compromised even if the commit or image is removed:
+
+1. **Rotate the credential.** Deleting it from the branch, history or image
+   isn't enough.
+2. **Delete affected Actions artifacts and caches** that may contain it
+   (artifact deletion / `gh run delete`, `gh cache delete`).
+3. **Treat the affected workflow run logs as exposed.**
 
 ### SAST, SCA and SBOM
 
