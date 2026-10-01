@@ -52,16 +52,19 @@ test("study session: select a tag, flip a card, advance, and reach the completio
 
   // [FLIP] now lives in the same row as [PREVIOUS]/[NEXT] rather than on the
   // card itself — asserted structurally (same row, i.e. same vertical
-  // position) rather than via a specific pixel offset, so this doesn't
-  // couple to layout details beyond "one row."
+  // centre) rather than via a specific pixel offset, so this doesn't
+  // couple to layout details beyond "one row." Centres, not top edges:
+  // [FLIP] stacks a keyboard hint under its label, so it's taller than its
+  // neighbours and its top sits higher in the centred row.
   const previousBox = await page.getByRole("button", { name: "Previous" }).boundingBox();
   const flipBox = await page.getByRole("button", { name: "Flip" }).boundingBox();
   const nextBox = await page.getByRole("button", { name: "Next", exact: true }).boundingBox();
   expect(previousBox).not.toBeNull();
   expect(flipBox).not.toBeNull();
   expect(nextBox).not.toBeNull();
-  expect(Math.abs(previousBox!.y - flipBox!.y)).toBeLessThan(5);
-  expect(Math.abs(nextBox!.y - flipBox!.y)).toBeLessThan(5);
+  const centreY = (box: { y: number; height: number }) => box.y + box.height / 2;
+  expect(Math.abs(centreY(previousBox!) - centreY(flipBox!))).toBeLessThan(5);
+  expect(Math.abs(centreY(nextBox!) - centreY(flipBox!))).toBeLessThan(5);
 
   // Front-side-up by default; the central button flips it to reveal the back.
   await expect(currentSlide.getByText(firstFront, { exact: false })).toBeVisible();

@@ -18,7 +18,7 @@ test("can create a wiki page and see it rendered in /wiki", async ({ page }) => 
   await page.getByRole("button", { name: "+ New page" }).click();
   await page.getByLabel("Title", { exact: true }).fill(title);
   await page.locator("#item-form-content").fill(content);
-  await page.getByRole("button", { name: "Add item" }).click();
+  await page.getByRole("button", { name: "Add page" }).click();
   await page.waitForURL(/\/wiki\/.+/);
 
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
@@ -50,7 +50,7 @@ test("wiki's '+ New page' button opens the form in the content pane, not the sid
 
   await page.getByLabel("Title", { exact: true }).fill(title);
   await page.locator("#item-form-content").fill(content);
-  await page.getByRole("button", { name: "Add item" }).click();
+  await page.getByRole("button", { name: "Add page" }).click();
 
   await page.waitForURL(/\/wiki\/.+/);
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
@@ -71,7 +71,7 @@ test("wiki's 'Add & add another' clears the form in place instead of navigating 
   await page.getByRole("button", { name: "Add & add another" }).click();
 
   // Stays on /wiki with the creation panel still open and cleared, rather
-  // than the onSuccess navigate-to-the-new-page behavior "Add item" (the
+  // than the onSuccess navigate-to-the-new-page behavior "Add page" (the
   // other submit button) triggers.
   await expect(page).toHaveURL(/\/wiki$/);
   await expect(page.getByText("Item added.")).toBeVisible();
@@ -94,7 +94,7 @@ test("deleting a page refreshes both the sidebar tree and the content pane", asy
   await page.getByRole("button", { name: "+ New page" }).click();
   await page.getByLabel("Title", { exact: true }).fill(title);
   await page.locator("#item-form-content").fill("Content for the delete-refresh smoke test.");
-  await page.getByRole("button", { name: "Add item" }).click();
+  await page.getByRole("button", { name: "Add page" }).click();
   await page.waitForURL(/\/wiki\/.+/);
 
   page.once("dialog", (dialog) => dialog.accept());

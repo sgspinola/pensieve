@@ -48,7 +48,10 @@ test("main page's tag cloud and kind chip row filter items without crashing", as
   const tag = `playwright-cloud-${Date.now()}`;
   const url = `https://example.com/playwright-cloud-${Date.now()}`;
 
+  // Explicitly a Link (the form defaults to Tool): the kind-chip step below
+  // relies on deselecting "Link" hiding this item.
   await page.goto("/items/new");
+  await page.getByRole("radio", { name: "Link" }).click();
   await page.getByLabel("URL").fill(url);
   await page.getByLabel("Title", { exact: true }).fill(url);
   await page.getByLabel("Tags").fill(tag);
