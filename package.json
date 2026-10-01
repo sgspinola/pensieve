@@ -12,6 +12,7 @@
     "build:ops": "esbuild src/ops/migrate.ts src/ops/healthcheck.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist/ops --out-extension:.js=.cjs",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

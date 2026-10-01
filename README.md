@@ -146,9 +146,19 @@ DATABASE_URL=postgres://pensieve:pensieve@localhost:5433/pensieve \
 npm run test:e2e
 ```
 
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request into `develop`/`main`
+and every push to them: lint (ESLint and actionlint), typecheck, unit
+(Vitest against a `postgres:17-alpine` service container), and docs-build.
+The branch rulesets require each gate by its job name. Adding or renaming a
+job means updating the `develop` and `main` rulesets' required checks too.
+On PRs into `main`, `release-source` also fails unless the head branch is
+`develop`.
+
 ## Other scripts
 
 ```bash
 npm run lint   # ESLint
-npx tsc --noEmit   # typecheck
+npm run typecheck   # next typegen + tsc --noEmit
 ```

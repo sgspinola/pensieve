@@ -1,0 +1,144 @@
+# Ticket 30: the single workflow that gates every change into develop/main
+# (spec: backlog/specs/10-ci-pipeline.md). Gate jobs run in parallel, and
+# the develop/main rulesets require each one by its job name (plus
+# `release-source` on main). Adding or renaming a gate therefore means
+# updating both rulesets' required checks too, or the new name never blocks
+# a merge.
+#
+# Baseline every job follows: least-privilege permissions (read-only here,
+# extra scopes granted per job), third-party actions pinned to a full commit
+# SHA with a version comment, checkout without persisted credentials, the
+# shared Node bootstrap (.github/actions/setup-node-deps), a timeout, and a
+# short $GITHUB_STEP_SUMMARY.
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+# One run per workflow + ref. Superseded PR runs are cancelled; pushes to
+# develop/main always run to completion.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-deps
+      - name: ESLint
+        run: npm run lint
+      - name: actionlint
+        # The image bundles shellcheck, so `run:` scripts are checked too.
+        run: >
+          docker run --rm -v "$PWD:/repo" --workdir /repo
+          rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+          -color
+      - name: Summary
+        run: |
+          echo "### lint :white_check_mark: ESLint and actionlint passed" >> "$GITHUB_STEP_SUMMARY"
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-deps
+      - run: npm run typecheck
+      - name: Summary
+        run: |
+          echo "### typecheck :white_check_mark: next typegen + tsc --noEmit passed" >> "$GITHUB_STEP_SUMMARY"
+
+  unit:
+    name: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: pensieve
+          POSTGRES_PASSWORD: pensieve
+          POSTGRES_DB: pensieve
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pensieve -d pensieve"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      # A throwaway service container, not a secret. The superuser is needed:
+      # src/test/db.ts creates and drops a database per test run.
+      DATABASE_URL: postgres://pensieve:pensieve@localhost:5432/pensieve
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-deps
+      # The tests don't use this database: src/test/db.ts creates and
+      # migrates a fresh one per run with drizzle-orm's migrator. This step
+      # proves the drizzle-kit path (`npm run db:migrate`) applies cleanly too.
+      - name: Migrate (drizzle-kit)
+        run: npm run db:migrate
+      - name: Vitest
+        run: npx vitest run --reporter=default --reporter=json --outputFile=vitest-results.json
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f vitest-results.json ]; then
+            jq -r '"### unit \(if .success then ":white_check_mark:" else ":x:" end) \(.numPassedTests) passed, \(.numFailedTests) failed, \(.numTotalTests) total"' \
+              vitest-results.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### unit :x: Vitest did not run" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  docs-build:
+    name: docs-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-deps
+      - run: npm run docs:build
+      - name: Summary
+        run: |
+          echo "### docs-build :white_check_mark: VitePress site built" >> "$GITHUB_STEP_SUMMARY"
+
+  # Required by the main ruleset: releases reach main only from develop, and
+  # only from this repository (a fork's branch can also be named "develop").
+  release-source:
+    name: release-source
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check head branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$HEAD_REF" = "develop" ] && [ "$HEAD_REPO" = "$REPO" ]; then
+            echo "### release-source :white_check_mark: $HEAD_REPO:$HEAD_REF" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### release-source :x: PRs into main must come from $REPO:develop, not $HEAD_REPO:$HEAD_REF" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::PRs into main must come from develop (got $HEAD_REPO:$HEAD_REF)"
+            exit 1
+          fi
