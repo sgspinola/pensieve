@@ -6,8 +6,9 @@
 #
 # Baseline every job follows: least-privilege permissions (read-only here,
 # extra scopes granted per job), third-party actions pinned to a full commit
-# SHA with a version comment, checkout without persisted credentials,
-# a timeout, and a short $GITHUB_STEP_SUMMARY.
+# SHA with a version comment, checkout without persisted credentials, the
+# shared Node bootstrap (.github/actions/setup-node-deps), a timeout, and a
+# short $GITHUB_STEP_SUMMARY.
 name: CI
 
 on:
@@ -25,9 +26,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  NPM_VERSION: 11.16.0
-
 jobs:
   lint:
     name: lint
@@ -37,12 +35,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm install --global "npm@${NPM_VERSION}"
-      - run: npm ci
+      - uses: ./.github/actions/setup-node-deps
       - name: ESLint
         run: npm run lint
       - name: actionlint
@@ -63,14 +56,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm install --global "npm@${NPM_VERSION}"
-      - run: npm ci
-      # `next typegen` first: PageProps/LayoutProps and next-env.d.ts are
-      # generated, so a fresh checkout can't typecheck without them.
+      - uses: ./.github/actions/setup-node-deps
       - run: npm run typecheck
       - name: Summary
         run: |
@@ -102,12 +88,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm install --global "npm@${NPM_VERSION}"
-      - run: npm ci
+      - uses: ./.github/actions/setup-node-deps
+      # The tests don't use this database: src/test/db.ts creates and
+      # migrates a fresh one per run with drizzle-orm's migrator. This step
+      # proves the drizzle-kit path (`npm run db:migrate`) applies cleanly too.
       - name: Migrate (drizzle-kit)
         run: npm run db:migrate
       - name: Vitest
@@ -116,7 +100,7 @@ jobs:
         if: always()
         run: |
           if [ -f vitest-results.json ]; then
-            jq -r '"### unit\n\(.numPassedTests) passed, \(.numFailedTests) failed, \(.numTotalTests) total"' \
+            jq -r '"### unit \(if .success then ":white_check_mark:" else ":x:" end) \(.numPassedTests) passed, \(.numFailedTests) failed, \(.numTotalTests) total"' \
               vitest-results.json >> "$GITHUB_STEP_SUMMARY"
           else
             echo "### unit :x: Vitest did not run" >> "$GITHUB_STEP_SUMMARY"
@@ -130,20 +114,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm install --global "npm@${NPM_VERSION}"
-      - run: npm ci
+      - uses: ./.github/actions/setup-node-deps
       - run: npm run docs:build
       - name: Summary
         run: |
           echo "### docs-build :white_check_mark: VitePress site built" >> "$GITHUB_STEP_SUMMARY"
 
   # The only check the develop ruleset requires. `if: always()` so it still
-  # reports when a gate fails; anything other than success in a needed job
-  # (failure, cancelled, or an unexpected skip) fails it.
+  # reports when a gate fails. A failed or cancelled gate fails it; a
+  # skipped one doesn't, so a gate can be made conditional without touching
+  # the rulesets (spec story 3).
   ci-ok:
     name: ci-ok
     if: always()
@@ -161,9 +141,9 @@ jobs:
             echo "| --- | --- |"
             jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' <<< "$NEEDS"
           } >> "$GITHUB_STEP_SUMMARY"
-          failed=$(jq -r 'to_entries[] | select(.value.result != "success") | .key' <<< "$NEEDS")
+          failed=$(jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key' <<< "$NEEDS")
           if [ -n "$failed" ]; then
-            echo "::error::Gates not successful: $(echo "$failed" | paste -sd, -)"
+            echo "::error::Gates failed or cancelled: $(echo "$failed" | paste -sd, -)"
             exit 1
           fi
 
