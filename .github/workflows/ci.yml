@@ -382,6 +382,7 @@ jobs:
       # A fresh throwaway service container per run, not a secret. Migrations
       # and the app run as its superuser; least-privilege roles are spec 11.
       DATABASE_URL: postgres://pensieve:pensieve@localhost:5432/pensieve
+      # Must match the @playwright/test version in package.json.
       PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -403,6 +404,8 @@ jobs:
           docker run -d --name app --network host -e DATABASE_URL pensieve:ci
           # 200 only once the app is up and its database answers.
           curl -fsS --retry 30 --retry-delay 2 --retry-all-errors --max-time 5 http://localhost:3000/api/health
+      # --reporter overrides the config's `list` for CI only: html for the
+      # failure artifact, json for the summary.
       - name: Playwright
         run: >
           docker run --rm --network host --ipc=host
@@ -416,6 +419,8 @@ jobs:
       - name: App logs
         if: failure()
         run: docker logs app
+      # No if-no-files-found: error, since a failure before Playwright ran
+      # leaves no report; the app logs above cover that case.
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -426,7 +431,8 @@ jobs:
         if: always()
         run: |
           if [ -f test-results/results.json ]; then
-            jq -r '.stats | "### e2e \(if .unexpected == 0 then ":white_check_mark:" else ":x:" end) against the built image: \(.expected) passed, \(.unexpected) failed, \(.flaky) flaky, \(.skipped) skipped"' \
+            # .errors holds global setup/teardown failures, which count no test.
+            jq -r '(.errors | length) as $errors | .stats | "### e2e \(if .unexpected == 0 and $errors == 0 then ":white_check_mark:" else ":x:" end) against the built image: \(.expected) passed, \(.unexpected) failed, \(.flaky) flaky, \(.skipped) skipped, \($errors) global error(s)"' \
               test-results/results.json >> "$GITHUB_STEP_SUMMARY"
           else
             echo "### e2e :x: Playwright did not run (see the image, migrate and app steps)" >> "$GITHUB_STEP_SUMMARY"
