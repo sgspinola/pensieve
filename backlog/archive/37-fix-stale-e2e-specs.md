@@ -12,7 +12,7 @@
 
 **Completed:** on `feat/37-fix-stale-e2e-specs`
 
-**Pull Request:** PR_URL_PLACEHOLDER
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/12
 
 - [x] Wiki specs submit via "Add page"; their comments name the right button
 - [x] The kind-chip spec and `addLinkWithTag` explicitly select the Link kind instead of relying on the form's default
