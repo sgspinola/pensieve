@@ -12,7 +12,7 @@ The repository has just been made public (see Further Notes), which raises the s
 
 ## Solution
 
-A single GitHub Actions workflow runs on every pull request into `develop` or `main` and on every push to those branches. Independent gate jobs run in parallel: lint (ESLint, actionlint for workflows, hadolint for the Dockerfile), type-check, unit tests against a real Postgres, secret scanning (TruffleHog), SAST and SCA (Semgrep), SBOM generation (CycloneDX via `npm sbom`), and a docs-site build. Alongside them, the pipeline builds an arm64 container image from Next's standalone output on a minimal distroless Node base; before the image leaves the build job it is scanned for embedded secrets (Trivy and TruffleHog), so a leaking image is never published as an artifact; it is then scanned for vulnerabilities (Trivy) and exercised end-to-end by Playwright running against the *built image itself*, not `next dev`. A single aggregate check summarises all gates and is the one check the branch rulesets require.
+A single GitHub Actions workflow runs on every pull request into `develop` or `main` and on every push to those branches. Independent gate jobs run in parallel: lint (ESLint, actionlint for workflows, hadolint for the Dockerfile), type-check, unit tests against a real Postgres, secret scanning (TruffleHog), SAST and SCA (Semgrep), SBOM generation (CycloneDX via `npm sbom`), and a docs-site build. Alongside them, the pipeline builds an arm64 container image from Next's standalone output on a minimal distroless Node base; before the image leaves the build job it is scanned for embedded secrets (Trivy and TruffleHog), so a leaking image is never published as an artifact; it is then scanned for vulnerabilities (Trivy) and exercised end-to-end by Playwright running against the *built image itself*, not `next dev`. The branch rulesets require each gate job by name.
 
 Results surface in GitHub Code Scanning (SARIF from Semgrep, Trivy and TruffleHog) and in each run's summary. CodeQL default setup runs alongside as an extra, non-blocking signal, notably for GitHub Actions workflow security. On a push to `develop` the image is kept as a downloadable deployable artifact; publishing to a registry on `main` is specified separately (spec 12).
 
@@ -22,7 +22,7 @@ Before any of that can pass, two pre-existing breakages are fixed: the client/se
 
 1. As the maintainer, I want every pull request to run lint, type-check and unit tests automatically, so that I don't have to remember to run them locally before merging.
 2. As the maintainer, I want a merge into `develop` or `main` to be blocked unless every CI gate has passed, so that a red build can never land by accident.
-3. As the maintainer, I want the branch rulesets to require one aggregate CI check rather than every job by name, so that adding, renaming or conditionally skipping a job never requires a ruleset change.
+3. As the maintainer, I want the branch rulesets to require each gate job by name, so that every gate visibly blocks a merge and the pipeline needs no extra aggregate job. (Revised during ticket 30: an aggregate `ci-ok` job was built and then dropped. Its `needs` list had to name every gate anyway, and the pipeline changes rarely once complete, so keeping the job list in the rulesets costs little.)
 4. As the maintainer, I want pull requests into `main` to fail unless they come from `develop`, so that `main` only ever receives release PRs.
 5. As the maintainer, I want the production build to succeed again, so that a deployable artifact can exist at all.
 6. As a developer, I want importing a server-only module (logging, mutation log, database) from a client component to fail the build with a clear message, so that the async_hooks breakage can't recur as an opaque Turbopack internal error.
@@ -121,7 +121,7 @@ Before any of that can pass, two pre-existing breakages are fixed: the client/se
   - **image-scan:** Trivy vulnerability scan (secrets are already covered in `build`) on the built image, failing on any severity with `--ignore-unfixed`. Exceptions live in `.trivyignore`, each with a reason and expiry. The vulnerability DB comes from the `public.ecr.aws` mirror and is cached daily.
   - **e2e:** runs inside the official Playwright v1.63.0 container on an arm64 runner. It loads the image, starts a Postgres service container, runs the image's migration entrypoint against it as the superuser, starts the app container, waits on the health endpoint, then runs Playwright. `PLAYWRIGHT_BASE_URL` disables the config's `webServer` block. The existing global setup seeds its session user directly through `DATABASE_URL` as today.
 - **Aggregate checks:**
-  - **`ci-ok`** needs every gate job, runs even if some fail (`if: always()`), and fails if any needed job failed or was cancelled. The rulesets require only `ci-ok`, plus "branches up to date".
+  - **No aggregate job.** The rulesets require every gate by its job name, plus "branches up to date". Adding or renaming a gate means updating both rulesets in the same change. A required check that is skipped counts as passing. That's safe for jobs skipped because a job they need failed, since that needed job is itself required and blocks. A job must not be made conditional on anything else (e.g. a paths filter), or its required check would never report on PRs it skips.
   - **`release-source`** runs only on PRs into `main` and fails unless the head branch is `develop`. The `main` ruleset requires it.
 - SARIF from Semgrep, Trivy (vulnerabilities and image secrets) and TruffleHog (repository and image) is uploaded to Code Scanning, and each gate writes a short `$GITHUB_STEP_SUMMARY`.
 - **Concurrency:** grouped by workflow and ref, with `cancel-in-progress` only for `pull_request` events.
@@ -129,7 +129,7 @@ Before any of that can pass, two pre-existing breakages are fixed: the client/se
 - **Artifact retention:** 1 day for the build→e2e/scan hand-off, 14 days for the image from `develop` pushes (the deployable artifact), 90 days for SBOMs.
 - **CodeQL:** default setup, a repository setting enabled by the maintainer after the workflow lands, for `javascript-typescript` and `actions`. Its findings don't block.
 
-**Rulesets (after the workflow lands):** the existing `develop`/`main` rulesets gain required status checks (`ci-ok`; plus `release-source` on `main`) with strict up-to-date enforcement. They already require signed commits and PRs, forbid force-pushes and deletion, and allow no bypass. Merge methods: squash only on `develop`, merge commits only on `main`.
+**Rulesets (after the workflow lands):** the existing `develop`/`main` rulesets gain required status checks (every gate job by name; plus `release-source` on `main`) with strict up-to-date enforcement. They already require signed commits and PRs, forbid force-pushes and deletion, and allow no bypass. Merge methods: squash only on `develop`, merge commits only on `main`.
 
 **Dependabot backlog:** PRs #1–#4 wait for this workflow. The patch bumps merge once green; the mermaid 11→12 major merges only if `docs-build` passes and the diagrams look right locally.
 

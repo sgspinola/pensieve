@@ -1,8 +1,9 @@
 # Ticket 30: the single workflow that gates every change into develop/main
-# (spec: backlog/specs/10-ci-pipeline.md). Gate jobs run in parallel; the
-# branch rulesets require only the `ci-ok` aggregate (plus `release-source`
-# on main), so adding a gate means adding it to `ci-ok`'s needs, not
-# touching the rulesets.
+# (spec: backlog/specs/10-ci-pipeline.md). Gate jobs run in parallel, and
+# the develop/main rulesets require each one by its job name (plus
+# `release-source` on main). Adding or renaming a gate therefore means
+# updating both rulesets' required checks too, or the new name never blocks
+# a merge.
 #
 # Baseline every job follows: least-privilege permissions (read-only here,
 # extra scopes granted per job), third-party actions pinned to a full commit
@@ -119,33 +120,6 @@ jobs:
       - name: Summary
         run: |
           echo "### docs-build :white_check_mark: VitePress site built" >> "$GITHUB_STEP_SUMMARY"
-
-  # The only check the develop ruleset requires. `if: always()` so it still
-  # reports when a gate fails. A failed or cancelled gate fails it; a
-  # skipped one doesn't, so a gate can be made conditional without touching
-  # the rulesets (spec story 3).
-  ci-ok:
-    name: ci-ok
-    if: always()
-    needs: [lint, typecheck, unit, docs-build]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Check gate results
-        env:
-          NEEDS: ${{ toJSON(needs) }}
-        run: |
-          {
-            echo "### ci-ok"
-            echo "| gate | result |"
-            echo "| --- | --- |"
-            jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' <<< "$NEEDS"
-          } >> "$GITHUB_STEP_SUMMARY"
-          failed=$(jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key' <<< "$NEEDS")
-          if [ -n "$failed" ]; then
-            echo "::error::Gates failed or cancelled: $(echo "$failed" | paste -sd, -)"
-            exit 1
-          fi
 
   # Required by the main ruleset: releases reach main only from develop, and
   # only from this repository (a fork's branch can also be named "develop").

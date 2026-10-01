@@ -1,6 +1,6 @@
 # 36: Turn on enforcement and clear the Dependabot backlog
 
-**What to build:** Once the full pipeline is on `develop`, make it actually binding and run the waiting dependency bumps through it. Most steps are maintainer-only (repository settings and the Semgrep dashboard). The `develop`/`main` rulesets gain required status checks (`ci-ok`, plus `release-source` on `main`) with strict up-to-date enforcement; CodeQL default setup is enabled for `javascript-typescript` and `actions` as a non-blocking signal; the Semgrep token and blocking policies are configured; and the four Dependabot PRs opened before CI existed are validated by CI before merging. Spec: `backlog/specs/10-ci-pipeline.md` (user stories 2, 3, 19, 40, 41, 52, and the Further Notes' maintainer-only steps).
+**What to build:** Once the full pipeline is on `develop`, make it actually binding and run the waiting dependency bumps through it. Most steps are maintainer-only (repository settings and the Semgrep dashboard). The `develop`/`main` rulesets gain required status checks (every gate job by name, plus `release-source` on `main`) with strict up-to-date enforcement; CodeQL default setup is enabled for `javascript-typescript` and `actions` as a non-blocking signal; the Semgrep token and blocking policies are configured; and the four Dependabot PRs opened before CI existed are validated by CI before merging. Spec: `backlog/specs/10-ci-pipeline.md` (user stories 2, 3, 19, 40, 41, 52, and the Further Notes' maintainer-only steps).
 
 **Blocked by:** 30, 31, 32, 33, 34, 35
 
@@ -8,7 +8,7 @@
 
 - [ ] (maintainer) `SEMGREP_APP_TOKEN` repository secret added
 - [ ] (maintainer) Semgrep dashboard blocking policies configured for Code and Supply Chain
-- [ ] (maintainer) `protect-develop` requires `ci-ok`; `protect-main` requires `ci-ok` and `release-source`; both with "branches must be up to date"
+- [ ] (maintainer) `protect-develop` requires every gate job by name: `lint`, `typecheck`, `unit`, `docs-build`, `secrets`, `sast-sca`, `sbom`, `build`, `image-scan`, `e2e`. `protect-main` requires the same list plus `release-source`. Both use "branches must be up to date". Check the list against `.github/workflows/ci.yml`'s job names at the time, since there's no aggregate job to catch a missing one
 - [ ] (maintainer) CodeQL default setup enabled for `javascript-typescript` and `actions`; findings confirmed non-blocking
 - [ ] Verified a PR into `main` from a branch other than `develop` is blocked by `release-source`
 - [ ] Dependabot PRs #1–#4 rebased so CI runs on them; patch bumps merged once green

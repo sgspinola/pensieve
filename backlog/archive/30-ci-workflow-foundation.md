@@ -1,4 +1,4 @@
-# 30: CI workflow foundation and the `ci-ok` aggregate
+# 30: CI workflow foundation (originally "and the `ci-ok` aggregate")
 
 **What to build:** The single GitHub Actions workflow that gates every change. It runs on `pull_request` targeting `develop`/`main` and on `push` to them (never `pull_request_target`, no schedule). This ticket lands the core gates — lint (ESLint + actionlint), typecheck, unit tests against a real Postgres, docs-build — plus the two aggregate checks the rulesets will require: `ci-ok` (needs every gate, runs `if: always()`, fails if any needed job failed or was cancelled) and `release-source` (on PRs into `main` only, fails unless the head branch is `develop`). It also establishes the pipeline's security and hygiene baseline that every later job follows. Spec: `backlog/specs/10-ci-pipeline.md` (user stories 1–4, 11, 36, 37, 39, 43–46, 48–51).
 
@@ -18,7 +18,7 @@
 - [x] **typecheck** job runs `tsc --noEmit` — via `npm run typecheck` (`next typegen && tsc --noEmit`): `PageProps`/`LayoutProps` and `next-env.d.ts` are Next-generated, so a fresh checkout can't typecheck without `next typegen` first
 - [x] **unit** job runs Vitest against a `postgres:17-alpine` service container, migrated with drizzle-kit first
 - [x] **docs-build** job runs `npm run docs:build`
-- [x] **`ci-ok`** aggregates all gate jobs as described and is the only check that will need to be required — fails on a `failure` or `cancelled` gate, not a `skipped` one (story 3)
+- [x] ~~**`ci-ok`** aggregates all gate jobs as described and is the only check that will need to be required~~ — built and verified, then **dropped by maintainer decision** before merge: the rulesets require each gate by job name instead (spec 10 story 3 and Implementation Decisions revised; ticket 36 lists the checks)
 - [x] **`release-source`** runs only for PRs into `main` and fails unless head is `develop` — and the head repo is this repository, since a fork's branch can also be named `develop`
 - [x] Concurrency grouped by workflow + ref, `cancel-in-progress` only for `pull_request` events
 - [x] Every job sets `timeout-minutes`

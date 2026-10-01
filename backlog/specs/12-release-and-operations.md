@@ -61,7 +61,7 @@ The documentation site gains pages describing the CI pipeline and the AWS deploy
 ## Implementation Decisions
 
 **`publish` job** (added to the spec 10 workflow):
-- Runs only on `push` to `main` and needs every gate job, so it can't run unless `ci-ok` would pass.
+- Runs only on `push` to `main` and needs every gate job, so it can't run unless every gate passed.
 - Permissions: `id-token: write` (OIDC) and `contents: read`.
 - Assumes the ECR push role (spec 11) via GitHub OIDC, and pushes the already-built and already-scanned image from the build job's artifact rather than rebuilding it, so the published bytes are exactly the bytes that were tested.
 - **Tags:** `sha-<short sha>` (immutable, the deployable reference) and `main` (moving). Plain ECR tag immutability forbids a moving tag. Use ECR's immutable-with-exclusions mode (exclusion filter for `main`) if the pinned AWS provider supports it. Otherwise drop the moving tag, so `sha-*` tags always stay immutable. Confirm against the provider when implementing.
@@ -80,7 +80,7 @@ The documentation site gains pages describing the CI pipeline and the AWS deploy
 - **Expected downtime:** a few minutes (snapshot, migration, then Fargate cold start). During that time Cloudflare serves its default origin-unavailable page.
 
 **Documentation** (VitePress docs site, following the existing conventions):
-- An architecture page for the CI pipeline: jobs, gates, the aggregate check, where findings go, and what's published from where.
+- An architecture page for the CI pipeline: jobs, gates, the rulesets' required checks, where findings go, and what's published from where.
 - An architecture page for the AWS deployment: the request path Cloudflare → Tunnel → `cloudflared` sidecar → app → RDS over IAM auth, plus the network layout, roles and cost structure, with Mermaid diagrams.
 - Operations runbooks:
   - **Bootstrap:** prerequisites, applying bootstrap, applying prod, running db-bootstrap, the first deploy, and the maintainer-only GitHub/Semgrep/CodeQL steps.

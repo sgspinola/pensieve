@@ -11,4 +11,4 @@
 - [ ] App container started from the loaded image; job waits for the health endpoint to return 200 before running tests
 - [ ] Playwright runs with `PLAYWRIGHT_BASE_URL` pointing at the app container; existing specs pass unchanged
 - [ ] Playwright report uploaded as an artifact on failure (short retention); step summary written
-- [ ] Included in `ci-ok`'s needs, ~20-minute timeout, SHA-pinned actions
+- [ ] `e2e` added to ticket 36's required-checks list, ~20-minute timeout, SHA-pinned actions
