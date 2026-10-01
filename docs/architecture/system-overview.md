@@ -61,9 +61,9 @@ Reading this left to right: **`proxy()` is the only place a session token is eve
 
 ## The auth gate, in detail
 
-`proxy()` (`src/proxy.ts:49-76`) runs on every request matching its `config.matcher` (everything except `_next/static`, `_next/image`, `favicon.ico`, and the app icon route). It does three things:
+`proxy()` (`src/proxy.ts:61-87`) runs on every request matching its `config.matcher` (everything except `_next/static`, `_next/image`, `favicon.ico`, and the app icon route). It does three things:
 
-1. **Allow-list check.** A small `PUBLIC_PATHS` set (login page, the six `register`/`login`/`recover`/`invite` options/verify API routes) plus any `/invite/<token>` path skip auth entirely — these are exactly the endpoints needed to *establish* a session in the first place (`src/proxy.ts:14-33`).
+1. **Allow-list check.** A small `PUBLIC_PATHS` set (login page, the six `register`/`login`/`recover`/`invite` options/verify API routes) plus any `/invite/<token>` path skip auth entirely — these are exactly the endpoints needed to *establish* a session in the first place (`src/proxy.ts:22-45`). The one exception that isn't about establishing a session is the exact path `/api/health`, the readiness probe, which reveals only up/down (see [Health check](/flows/health-check)).
 2. **Session lookup.** For everything else, it reads the `session` cookie and calls `getSessionUser(getDb(), token)` (`src/services/auth/session.ts:39-63`), which hashes the token, joins `sessions` to `users`, and throws `UnauthorizedError` if the row is missing or expired.
 3. **Header stamping.** On success, it strips any client-supplied `x-pensieve-user` header (so a client can't spoof it) and sets its own, base64-encoding the resolved `{id, displayName, role}` (`src/lib/auth-cookies.ts:29-31`). On failure, API paths get a `401` JSON body; page paths get redirected to `/login`.
 

@@ -58,6 +58,7 @@ export default withMermaid({
           { text: "Flashcards Import/Export", link: "/flows/flashcards-import-export" },
           { text: "Flashcard Study Session", link: "/flows/flashcard-study-session" },
           { text: "Wiki Article Management", link: "/flows/wiki-article-management" },
+          { text: "Health Check", link: "/flows/health-check" },
         ],
       },
     ],
