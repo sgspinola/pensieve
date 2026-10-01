@@ -8,7 +8,7 @@
 
 - [ ] (maintainer) `SEMGREP_APP_TOKEN` repository secret added
 - [ ] (maintainer) Semgrep dashboard blocking policies configured for Code and Supply Chain
-- [ ] (maintainer) `protect-develop` requires every gate job by name: `lint`, `typecheck`, `unit`, `docs-build`, `secrets`, `sast-sca`, `sbom`, `build`, `image-scan`, `e2e`. `protect-main` requires the same list plus `release-source`. Both use "branches must be up to date". Check the list against `.github/workflows/ci.yml`'s job names at the time, since there's no aggregate job to catch a missing one
+- [ ] (maintainer) `protect-develop` requires every gate job by name: `lint`, `typecheck`, `unit`, `docs-build`, `trufflehog`, `semgrep`, `sbom`, `build`, `trivy`, `e2e`. `protect-main` requires the same list plus `release-source`. Both use "branches must be up to date". Check the list against `.github/workflows/ci.yml`'s job names at the time, since there's no aggregate job to catch a missing one
 - [ ] (maintainer) CodeQL default setup enabled for `javascript-typescript` and `actions`; findings confirmed non-blocking
 - [ ] Verified a PR into `main` from a branch other than `develop` is blocked by `release-source`
 - [ ] Dependabot PRs #1–#4 rebased so CI runs on them; patch bumps merged once green

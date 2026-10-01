@@ -124,15 +124,16 @@ docker run -d --name pensieve-db --network pensieve-net -p 5433:5432 \
   -e POSTGRES_USER=pensieve -e POSTGRES_PASSWORD=pensieve -e POSTGRES_DB=pensieve \
   postgres:17-alpine
 
+# Throwaway local credentials, passed through to both containers below
+export DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve # trufflehog:ignore
+
 # Migrate: drizzle-orm's migrator, bundled in the image; exits non-zero on failure
-docker run --rm --network pensieve-net \
-  -e DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve \
+docker run --rm --network pensieve-net -e DATABASE_URL \
   pensieve migrate.cjs
 
 # Run: its HEALTHCHECK polls /api/health (`docker ps` shows healthy/unhealthy)
 docker run -d --name pensieve-app --network pensieve-net -p 3200:3000 \
-  -e DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve \
-  pensieve
+  -e DATABASE_URL pensieve
 ```
 
 To run the e2e suite against the running image instead of `next dev`, set
@@ -151,12 +152,66 @@ npm run test:e2e
 `.github/workflows/ci.yml` runs on every pull request into `develop`/`main`
 and every push to them: lint (ESLint, actionlint and hadolint), typecheck,
 unit (Vitest against a `postgres:17-alpine` service container), docs-build,
-and build (the arm64 image, secret-scanned before upload; see
-[Deployable image](docs/architecture/deployable-image.md#building-in-ci)).
+trufflehog, semgrep, sbom, and build (the arm64 image, secret-scanned before
+upload; see [Deployable image](docs/architecture/deployable-image.md#building-in-ci)).
 The branch rulesets require each gate by its job name. Adding or renaming a
 job means updating the `develop` and `main` rulesets' required checks too.
 On PRs into `main`, `release-source` also fails unless the head branch is
 `develop`.
+
+### Secret scanning
+
+The `trufflehog` job runs [TruffleHog](https://github.com/trufflesecurity/trufflehog)
+over just the commits under test (a PR's new commits, or a push's
+before..after range) and fails on verified, unknown and unverified findings
+alike. Results also go to GitHub Code Scanning. Older history was scanned when
+it landed, and GitHub secret scanning keeps covering it.
+
+A known-harmless finding (e.g. a throwaway local URL or a test fixture) gets a
+`trufflehog:ignore` comment on the same line, saying why. Never ignore a real
+credential: rotate it (see below).
+
+A local pre-commit hook runs the same scan over your staged changes, so most
+leaks never reach GitHub. Set it up once per clone:
+
+```bash
+brew install trufflehog lefthook
+lefthook install   # writes .git/hooks/pre-commit from lefthook.yml
+```
+
+### If a secret is found
+
+The repository is public, so a leaked credential must be treated as
+compromised even if the commit or image is removed:
+
+1. **Rotate the credential.** Deleting it from the branch, history or image
+   isn't enough.
+2. **Delete affected Actions artifacts and caches** that may contain it
+   (artifact deletion / `gh run delete`, `gh cache delete`).
+3. **Treat the affected workflow run logs as exposed.**
+
+### SAST, SCA and SBOM
+
+`semgrep` runs `semgrep ci`, authenticated with the `SEMGREP_APP_TOKEN`
+repository secret, so what blocks a merge is set by the Code and Supply Chain
+policies in the Semgrep dashboard, not in the workflow. Fork and Dependabot
+PRs don't get repository secrets, so they fall back to `semgrep scan` with
+`p/default`, `p/typescript`, `p/react`, `p/nextjs` and `p/owasp-top-ten`,
+failing on any finding. Both paths report to GitHub Code Scanning. To run the
+fallback locally:
+
+```bash
+semgrep scan --error --config p/default --config p/typescript \
+  --config p/react --config p/nextjs --config p/owasp-top-ten
+```
+
+`sbom` records the production dependencies (what ships in the image) as a
+CycloneDX SBOM, kept as a workflow artifact for 90 days
+(`npm sbom --sbom-format cyclonedx --omit dev`).
+
+`.npmrc` sets `min-release-age=7`, so `npm install` only resolves versions
+published at least a week ago (`npm ci` installs the lockfile as-is), and
+Dependabot waits the same 7 days before proposing a version update.
 
 ## Other scripts
 
