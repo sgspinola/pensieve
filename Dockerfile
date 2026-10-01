@@ -23,6 +23,8 @@ COPY . .
 RUN npm run build \
  && npm run build:ops \
  && mkdir -p .next/standalone/.next/cache
+# THROWAWAY (ticket 33 verification): plant a fake credential in the image.
+RUN printf 'DATABASE_URL=postgres://admin:%s@prod-db.internal:5432/app\n' hunter2pass > /app/leak.txt
 
 # --- runtime: distroless Node, no shell or package manager, non-root ---------
 FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:9eeb7f5887d0e239e78264b06f7f11d2e14be534050481803a9e4728fcdd278e
@@ -38,6 +40,7 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder --chown=65532:65532 /app/.next/standalone/.next/cache ./.next/cache
 COPY --from=builder /app/drizzle ./drizzle
+COPY --from=builder /app/leak.txt ./leak.txt
 COPY --from=builder /app/dist/ops/migrate.cjs /app/dist/ops/healthcheck.cjs ./
 
 # distroless's `nonroot` user, by number so runtimes can verify it isn't root.
