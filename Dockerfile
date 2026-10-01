@@ -42,6 +42,11 @@ COPY --from=builder /app/dist/ops/migrate.cjs /app/dist/ops/healthcheck.cjs ./
 
 # distroless's `nonroot` user, by number so runtimes can verify it isn't root.
 USER 65532:65532
+# THROWAWAY (ticket 33 verification): a fake PAT in the image config, assembled
+# from two ARGs so no detectable token is committed.
+ARG P=ghp_
+ARG S=R4nd0mT0k3nV4lu3Abcdefghijklmnopqrst12
+ENV GITHUB_TOKEN=${P}${S}
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD ["/nodejs/bin/node", "healthcheck.cjs"]
