@@ -13,6 +13,11 @@ wiki articles. See `specs/pensieve-v1.md` for the full product spec.
 
 ## Local setup
 
+Requires Node 24 (pinned in `.nvmrc`, so `nvm use` picks it up) and npm
+11.16.0, as declared in `package.json`'s `engines` — the same versions CI
+uses, so installs resolve identically and honour the `allowScripts`
+install-script allowlist.
+
 1. Start Postgres:
 
    ```bash

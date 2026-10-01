@@ -207,7 +207,7 @@ Concretely:
 relied on: `configure()` is async, and an unawaited race on a cold start
 would leave `contextLocalStorage` unset, making `withContext()` silently
 no-op rather than bind the context (`src/lib/logging.ts:41-48`,
-`src/proxy.ts:58-63`).
+`src/proxy.ts:62-67`).
 
 ## Log pipeline
 

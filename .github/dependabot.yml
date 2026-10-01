@@ -9,3 +9,9 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "daily"
+    ignore:
+      # Ticket 27: typescript-eslint supports `typescript >=4.8.4 <6.1.0`;
+      # TypeScript 7 crashes ESLint on startup. Drop this once
+      # typescript-eslint supports 7.
+      - dependency-name: "typescript"
+        versions: [">=7"]
