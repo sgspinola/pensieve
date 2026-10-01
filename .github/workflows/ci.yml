@@ -63,6 +63,85 @@ jobs:
         run: |
           echo "### typecheck :white_check_mark: next typegen + tsc --noEmit passed" >> "$GITHUB_STEP_SUMMARY"
 
+  # Ticket 32: SAST and SCA. With SEMGREP_APP_TOKEN, `semgrep ci` lets the
+  # Semgrep dashboard's Code and Supply Chain policies decide what blocks.
+  # Fork and Dependabot PRs get no repository secrets, so they fall back to
+  # `semgrep scan` with fixed rulesets, blocking on any finding.
+  semgrep:
+    name: semgrep
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    container:
+      image: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # `semgrep ci` diffs a PR against its merge base.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Semgrep
+        id: semgrep
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: |
+          if [ -n "$SEMGREP_APP_TOKEN" ]; then
+            echo "mode=semgrep ci (dashboard policies)" >> "$GITHUB_OUTPUT"
+            semgrep ci --sarif-output=semgrep.sarif
+          else
+            echo "mode=semgrep scan (fallback rulesets, no token)" >> "$GITHUB_OUTPUT"
+            semgrep scan --error --metrics=off --sarif-output=semgrep.sarif \
+              --config p/default --config p/typescript --config p/react \
+              --config p/nextjs --config p/owasp-top-ten
+          fi
+      - name: Upload SARIF
+        if: always() && hashFiles('semgrep.sarif') != ''
+        # A fork PR's token can't write security events; don't fail on that.
+        continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+      - name: Summary
+        if: always()
+        env:
+          MODE: ${{ steps.semgrep.outputs.mode || 'did not run' }}
+          OUTCOME: ${{ steps.semgrep.outcome }}
+        run: |
+          if [ -s semgrep.sarif ]; then
+            n=$(jq '[.runs[].results[]] | length' semgrep.sarif)
+            icon=$([ "$OUTCOME" = success ] && echo ":white_check_mark:" || echo ":x:")
+            echo "### semgrep $icon $MODE, $n finding(s) reported" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### semgrep :x: $MODE, no SARIF produced" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Ticket 32: a CycloneDX SBOM of the production dependencies, i.e. what
+  # ships in the image, kept for 90 days.
+  sbom:
+    name: sbom
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-deps
+      - name: npm sbom
+        run: npm sbom --sbom-format cyclonedx --omit dev > sbom.cdx.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.cdx.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Summary
+        run: |
+          n=$(jq '.components | length' sbom.cdx.json)
+          echo "### sbom :white_check_mark: CycloneDX, $n production components" >> "$GITHUB_STEP_SUMMARY"
+
   unit:
     name: unit
     runs-on: ubuntu-24.04
