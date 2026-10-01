@@ -23,6 +23,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // VitePress build output and dev cache (bundled, minified JS).
+    "docs/.vitepress/cache/**",
+    "docs/.vitepress/dist/**",
   ]),
 ]);
 

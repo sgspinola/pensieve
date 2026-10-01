@@ -106,6 +106,46 @@ npm run db:generate   # generates a new migration from the schema diff
 npm run db:migrate    # applies pending migrations to the dev database
 ```
 
+## Production image
+
+The deployable artifact is an arm64 container image built from Next's
+standalone output on distroless Node (no shell, runs as non-root). See
+[Deployable image](docs/architecture/deployable-image.md) for what's inside.
+`.dockerignore` keeps `.env*` out of the build, so a local `.env` never ends
+up in the image.
+
+```bash
+# Build
+docker build --platform linux/arm64 -t pensieve .
+
+# A network the app, migrations and Postgres share (any reachable Postgres works)
+docker network create pensieve-net
+docker run -d --name pensieve-db --network pensieve-net -p 5433:5432 \
+  -e POSTGRES_USER=pensieve -e POSTGRES_PASSWORD=pensieve -e POSTGRES_DB=pensieve \
+  postgres:17-alpine
+
+# Migrate: drizzle-orm's migrator, bundled in the image; exits non-zero on failure
+docker run --rm --network pensieve-net \
+  -e DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve \
+  pensieve migrate.cjs
+
+# Run: its HEALTHCHECK polls /api/health (`docker ps` shows healthy/unhealthy)
+docker run -d --name pensieve-app --network pensieve-net -p 3200:3000 \
+  -e DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve \
+  pensieve
+```
+
+To run the e2e suite against the running image instead of `next dev`, set
+`PLAYWRIGHT_BASE_URL` (which skips Playwright's `webServer`) and point
+`DATABASE_URL` at the same database from the host, since global setup seeds
+its session user directly:
+
+```bash
+PLAYWRIGHT_BASE_URL=http://localhost:3200 \
+DATABASE_URL=postgres://pensieve:pensieve@localhost:5433/pensieve \
+npm run test:e2e
+```
+
 ## Other scripts
 
 ```bash
