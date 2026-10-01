@@ -150,9 +150,10 @@ npm run test:e2e
 ## CI
 
 `.github/workflows/ci.yml` runs on every pull request into `develop`/`main`
-and every push to them: lint (ESLint and actionlint), typecheck, unit
-(Vitest against a `postgres:17-alpine` service container), docs-build,
-trufflehog, semgrep and sbom.
+and every push to them: lint (ESLint, actionlint and hadolint), typecheck,
+unit (Vitest against a `postgres:17-alpine` service container), docs-build,
+trufflehog, semgrep, sbom, and build (the arm64 image, secret-scanned before
+upload; see [Deployable image](docs/architecture/deployable-image.md#building-in-ci)).
 The branch rulesets require each gate by its job name. Adding or renaming a
 job means updating the `develop` and `main` rulesets' required checks too.
 On PRs into `main`, `release-source` also fails unless the head branch is

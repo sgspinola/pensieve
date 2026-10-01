@@ -45,9 +45,14 @@ jobs:
           docker run --rm -v "$PWD:/repo" --workdir /repo
           rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
           -color
+      - name: hadolint
+        run: >
+          docker run --rm -i
+          hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d
+          < Dockerfile
       - name: Summary
         run: |
-          echo "### lint :white_check_mark: ESLint and actionlint passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "### lint :white_check_mark: ESLint, actionlint and hadolint passed" >> "$GITHUB_STEP_SUMMARY"
 
   typecheck:
     name: typecheck
@@ -270,3 +275,78 @@ jobs:
             echo "::error::PRs into main must come from develop (got $HEAD_REPO:$HEAD_REF)"
             exit 1
           fi
+
+  # Ticket 33: the deployable arm64 image, built natively on an arm64 runner.
+  # It's scanned for embedded secrets before upload, so a leaking image is
+  # never downloadable from this public repository: Trivy covers every
+  # layer's files plus the image config (ENV, labels, build-arg history),
+  # with a custom rule for credentials in URLs (trivy-secret.yaml). Any
+  # finding fails the job before upload-artifact; SARIF goes up either way.
+  build:
+    name: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The repository allows only GitHub-owned actions, so buildx runs from
+      # the runner's CLI, its layer cache persisted with actions/cache. Every
+      # run restores the newest cache (PRs can read develop's); only pushes
+      # save one, so PR runs don't each add a full layer cache.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/buildx-cache
+          key: buildx-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: buildx-${{ runner.arch }}-
+      - name: Build
+        run: |
+          docker buildx create --driver docker-container --use
+          docker buildx build --platform linux/arm64 --tag pensieve:ci --load \
+            --cache-from "type=local,src=$RUNNER_TEMP/buildx-cache" \
+            --cache-to "type=local,dest=$RUNNER_TEMP/buildx-cache-new,mode=max" .
+          # Replace rather than merge, so the cache doesn't grow without bound.
+          rm -rf "$RUNNER_TEMP/buildx-cache"
+          mv "$RUNNER_TEMP/buildx-cache-new" "$RUNNER_TEMP/buildx-cache"
+      - if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/buildx-cache
+          key: buildx-${{ runner.arch }}-${{ github.sha }}
+      - name: Save image
+        run: docker save pensieve:ci -o "$RUNNER_TEMP/pensieve-image.tar"
+      - name: Trivy secret scan
+        run: >
+          docker run --rm -v "$RUNNER_TEMP:/scan:ro" -v "$PWD:/repo"
+          aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+          image --input /scan/pensieve-image.tar
+          --scanners secret --image-config-scanners secret
+          --secret-config /repo/trivy-secret.yaml
+          --exit-code 1 --format sarif --output /repo/trivy-secret.sarif
+      - name: Upload Trivy SARIF
+        if: always() && hashFiles('trivy-secret.sarif') != ''
+        # A fork PR's token can't write security events; don't fail on that.
+        continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy-secret.sarif
+          category: trivy-image-secrets
+      # Only reached when the scan passed. 1 day is the hand-off to later
+      # jobs (the image scan and e2e, tickets 34 and 35); on develop pushes
+      # it's the deployable artifact.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pensieve-image
+          path: ${{ runner.temp }}/pensieve-image.tar
+          retention-days: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/develop') && 14 || 1 }}
+          if-no-files-found: error
+      - name: Summary
+        if: always()
+        run: |
+          count() { [ -s "$1" ] && jq '[.runs[].results[]] | length' "$1" || echo "no SARIF"; }
+          trivy=$(count trivy-secret.sarif)
+          icon=$([ "$trivy" = 0 ] && echo ":white_check_mark:" || echo ":x:")
+          echo "### build $icon linux/arm64 image; Trivy secret findings: $trivy" >> "$GITHUB_STEP_SUMMARY"

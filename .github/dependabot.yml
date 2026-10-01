@@ -31,3 +31,27 @@ updates:
     groups:
       actions-minor-patch:
         update-types: ["minor", "patch"]
+
+  # Ticket 33: the Dockerfile's base images are pinned by tag and digest;
+  # this keeps both current.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      docker-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # Ticket 33: Terraform providers, once spec 11 adds infra/. Until then
+  # Dependabot reports this directory as missing.
+  - package-ecosystem: "terraform"
+    directory: "/infra"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      terraform-minor-patch:
+        update-types: ["minor", "patch"]
