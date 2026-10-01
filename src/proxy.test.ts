@@ -81,3 +81,26 @@ describe("proxy request correlation ID", () => {
     expect(response.headers.get(`x-middleware-request-${REQUEST_ID_HEADER}`)).toBe(existingId);
   });
 });
+
+// Ticket 28: the health route is the one API path reachable without a
+// session (the container HEALTHCHECK and CI e2e job have no cookie). The
+// exemption must be exact — no sibling or prefix-match path rides along.
+// Requests carry no session cookie, so getSessionUser rejects before any DB
+// query and the gate's decision is observable from the response alone.
+describe("proxy health route exemption", () => {
+  it("lets an unauthenticated GET /api/health through to the route", async () => {
+    const response = await proxy(new NextRequest("https://example.com/api/health"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it.each(["/api/health/x", "/api/healthz", "/api/health-check"])(
+    "still rejects an unauthenticated request to look-alike path %s",
+    async (path) => {
+      const response = await proxy(new NextRequest(`https://example.com${path}`));
+
+      expect(response.status).toBe(401);
+    },
+  );
+});
