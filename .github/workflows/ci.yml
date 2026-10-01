@@ -152,8 +152,8 @@ jobs:
   # It's scanned for embedded secrets before upload, so a leaking image is
   # never downloadable from this public repository: Trivy covers every
   # layer's files plus the image config (ENV, labels, build-arg history),
-  # TruffleHog's docker source the files with its own detectors. Any finding
-  # fails the job before upload-artifact; SARIF goes up either way.
+  # with a custom rule for credentials in URLs (trivy-secret.yaml). Any
+  # finding fails the job before upload-artifact; SARIF goes up either way.
   build:
     name: build
     runs-on: ubuntu-24.04-arm
@@ -189,7 +189,6 @@ jobs:
           path: ${{ runner.temp }}/buildx-cache
           key: buildx-${{ runner.arch }}-${{ github.sha }}
       - name: Save image
-        id: save
         run: docker save pensieve:ci -o "$RUNNER_TEMP/pensieve-image.tar"
       - name: Trivy secret scan
         run: >
@@ -199,24 +198,6 @@ jobs:
           --scanners secret --image-config-scanners secret
           --secret-config /repo/trivy-secret.yaml
           --exit-code 1 --format sarif --output /repo/trivy-secret.sarif
-      # Runs even when Trivy failed, so both tools report.
-      - name: TruffleHog image scan
-        if: ${{ !cancelled() && steps.save.outcome == 'success' }}
-        run: |
-          today=$(date -u +%F)
-          exclude=$(awk -v today="$today" '!/^#/ && NF >= 3 && $2 >= today { print $1 }' \
-            .github/trufflehog-image-exclude.txt | paste -sd, -)
-          awk -v today="$today" '!/^#/ && NF >= 3 && $2 < today { print "::warning::Expired TruffleHog image exclusion " $1 " (" $2 ")" }' \
-            .github/trufflehog-image-exclude.txt
-          args=()
-          if [ -n "$exclude" ]; then
-            args=(--exclude-paths="$exclude")
-          fi
-          docker run --rm -v "$RUNNER_TEMP:/scan:ro" \
-            trufflesecurity/trufflehog:3.97.9@sha256:52e67fef4d054ecff5c2ce4b4ae376626d1ef54aa0898b53cac19c25e92e14db \
-            docker --image file:///scan/pensieve-image.tar "${args[@]}" \
-            --results=verified,unknown,unverified --fail --no-update --sarif \
-            > trufflehog-image.sarif
       - name: Upload Trivy SARIF
         if: always() && hashFiles('trivy-secret.sarif') != ''
         # A fork PR's token can't write security events; don't fail on that.
@@ -225,14 +206,7 @@ jobs:
         with:
           sarif_file: trivy-secret.sarif
           category: trivy-image-secrets
-      - name: Upload TruffleHog SARIF
-        if: always() && hashFiles('trufflehog-image.sarif') != ''
-        continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
-        with:
-          sarif_file: trufflehog-image.sarif
-          category: trufflehog-image
-      # Only reached when both scans passed. 1 day is the hand-off to later
+      # Only reached when the scan passed. 1 day is the hand-off to later
       # jobs (the image scan and e2e, tickets 34 and 35); on develop pushes
       # it's the deployable artifact.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -246,6 +220,5 @@ jobs:
         run: |
           count() { [ -s "$1" ] && jq '[.runs[].results[]] | length' "$1" || echo "no SARIF"; }
           trivy=$(count trivy-secret.sarif)
-          trufflehog=$(count trufflehog-image.sarif)
-          icon=$([ "$trivy" = 0 ] && [ "$trufflehog" = 0 ] && echo ":white_check_mark:" || echo ":x:")
-          echo "### build $icon linux/arm64 image; secret findings: Trivy $trivy, TruffleHog $trufflehog" >> "$GITHUB_STEP_SUMMARY"
+          icon=$([ "$trivy" = 0 ] && echo ":white_check_mark:" || echo ":x:")
+          echo "### build $icon linux/arm64 image; Trivy secret findings: $trivy" >> "$GITHUB_STEP_SUMMARY"

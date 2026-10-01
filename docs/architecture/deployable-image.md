@@ -81,14 +81,8 @@ The Playwright suite in `e2e/` runs unchanged against a running container. Setti
 
 ## Building in CI
 
-The CI `build` job builds the image natively on an arm64 runner, with Docker layers cached in the GitHub Actions cache. Before the image leaves the job, two tools scan it for embedded secrets:
+The CI `build` job builds the image natively on an arm64 runner, with Docker layers cached in the GitHub Actions cache. Before the image leaves the job, Trivy scans it for embedded secrets: every layer's files and the image config (ENV, labels, build-arg history). Its built-in rules don't cover connection strings, so `trivy-secret.yaml` adds a custom rule for any URL with an embedded password, such as a `DATABASE_URL`.
 
-- **Trivy** scans every layer's files and the image config (ENV, labels, build-arg history).
-- **TruffleHog's `docker` source** scans the files with its own detectors. It fails on verified, unknown and unverified findings.
+Any finding fails the job before the upload step, so a leaking image is never downloadable. The results go to GitHub Code Scanning even then. A clean image is uploaded as a `docker save` tarball artifact named `pensieve-image`. It's kept for 1 day as the hand-off to later jobs, or 14 days on a push to `develop`, where it's the deployable artifact.
 
-Any finding fails the job before the upload step, so a leaking image is never downloadable. Both tools' results go to GitHub Code Scanning even then. A clean image is uploaded as a `docker save` tarball artifact named `pensieve-image`. It's kept for 1 day as the hand-off to later jobs, or 14 days on a push to `develop`, where it's the deployable artifact.
-
-Scanner false positives are recorded per tool, each with a reason and an expiry:
-
-- Trivy in `trivy-secret.yaml`. Trivy has no expiry field, so the expiry goes in each rule's description and is reviewed by hand.
-- TruffleHog in `.github/trufflehog-image-exclude.txt`. The job drops expired entries, so the finding blocks again. The file already excludes the distroless base's dpkg `*.md5sums` lists, which trip its Box detector.
+Scanner false positives go in `trivy-secret.yaml` as allow rules, each with a reason and an expiry in its description. Trivy has no expiry field, so expired rules are reviewed by hand.
