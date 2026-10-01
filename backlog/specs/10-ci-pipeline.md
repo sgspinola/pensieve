@@ -107,7 +107,7 @@ Before any of that can pass, two pre-existing breakages are fixed: the client/se
   - **lint:** ESLint, actionlint and hadolint.
   - **typecheck:** `tsc --noEmit`.
   - **unit:** Vitest with a `postgres:17-alpine` service container, migrated with drizzle-kit before tests.
-  - **secrets:** TruffleHog over the PR's commit range on `pull_request`, and the full history on `push`. Fails on verified, unknown and unverified results.
+  - **secrets:** TruffleHog over the PR's commit range on `pull_request`, and the full history on `push`. Fails on verified, unknown and unverified results. (Revised during ticket 31: accepted findings already in history, such as the README's throwaway Postgres URLs, are listed by fingerprint with a reason and expiry in `.github/trufflehog-allow.txt` and filtered out of the SARIF before the job decides; TruffleHog has no allowlist for history findings.)
   - **sast-sca:** `semgrep ci` authenticated with the `SEMGREP_APP_TOKEN` secret, so blocking is decided by the Semgrep dashboard policies for Code and Supply Chain. When the token is unavailable (fork PRs), it falls back to `semgrep scan` with `p/default`, `p/typescript`, `p/react`, `p/nextjs` and `p/owasp-top-ten`. Both emit SARIF.
   - **sbom:** `npm sbom --sbom-format cyclonedx --omit dev`, uploaded as an artifact.
   - **docs-build:** `npm run docs:build`.
