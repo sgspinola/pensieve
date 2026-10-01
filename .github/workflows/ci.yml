@@ -67,8 +67,8 @@ jobs:
   # Semgrep dashboard's Code and Supply Chain policies decide what blocks.
   # Fork and Dependabot PRs get no repository secrets, so they fall back to
   # `semgrep scan` with fixed rulesets, blocking on any finding.
-  sast-sca:
-    name: sast-sca
+  semgrep:
+    name: semgrep
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -113,9 +113,9 @@ jobs:
           if [ -s semgrep.sarif ]; then
             n=$(jq '[.runs[].results[]] | length' semgrep.sarif)
             icon=$([ "$OUTCOME" = success ] && echo ":white_check_mark:" || echo ":x:")
-            echo "### sast-sca $icon $MODE, $n finding(s) reported" >> "$GITHUB_STEP_SUMMARY"
+            echo "### semgrep $icon $MODE, $n finding(s) reported" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### sast-sca :x: $MODE, no SARIF produced" >> "$GITHUB_STEP_SUMMARY"
+            echo "### semgrep :x: $MODE, no SARIF produced" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # Ticket 32: a CycloneDX SBOM of the production dependencies, i.e. what

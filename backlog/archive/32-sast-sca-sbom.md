@@ -10,7 +10,7 @@
 
 **Pull Request:** https://github.com/sgspinola/pensieve/pull/17
 
-- [x] **sast-sca** runs `semgrep ci` when `SEMGREP_APP_TOKEN` is available
+- [x] **semgrep** (originally `sast-sca`) runs `semgrep ci` when `SEMGREP_APP_TOKEN` is available
 - [x] Falls back to `semgrep scan` with the listed rulesets when the token is absent (fork PRs), without failing on the missing secret — blocking on any finding (`--error`). The rulesets flagged three pre-existing supply-chain settings, fixed rather than suppressed: `.npmrc` gains `min-release-age=7`, and both Dependabot ecosystems a matching 7-day cooldown
 - [x] SARIF from either path uploaded to Code Scanning; step summary written
 - [x] **sbom** job generates a CycloneDX SBOM with dev dependencies omitted and uploads it with 90-day retention

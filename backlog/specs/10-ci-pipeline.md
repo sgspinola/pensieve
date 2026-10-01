@@ -103,12 +103,12 @@ Before any of that can pass, two pre-existing breakages are fixed: the client/se
 **Workflow structure (a single workflow):**
 - Triggers: `pull_request` targeting `develop`/`main`; `push` to `develop`/`main`. No scheduled run.
 - Default `permissions: contents: read`, with per-job additions (e.g. `security-events: write` for SARIF upload). All actions are pinned by full SHA with a version comment.
-- **Parallel gate jobs:**
+- **Parallel gate jobs:** (Revised during ticket 32: a job that runs a single scanner is named after the tool, so `sast-sca`, `secrets` and `image-scan` became `semgrep`, `trufflehog` and `trivy`.)
   - **lint:** ESLint, actionlint and hadolint.
   - **typecheck:** `tsc --noEmit`.
   - **unit:** Vitest with a `postgres:17-alpine` service container, migrated with drizzle-kit before tests.
-  - **secrets:** TruffleHog over the PR's commit range on `pull_request`, and the full history on `push`. Fails on verified, unknown and unverified results.
-  - **sast-sca:** `semgrep ci` authenticated with the `SEMGREP_APP_TOKEN` secret, so blocking is decided by the Semgrep dashboard policies for Code and Supply Chain. When the token is unavailable (fork PRs), it falls back to `semgrep scan` with `p/default`, `p/typescript`, `p/react`, `p/nextjs` and `p/owasp-top-ten`. Both emit SARIF. (Revised during ticket 32: the fallback blocks on any finding. Its rulesets flagged the repo's missing npm release-age and Dependabot cooldown, so `.npmrc` sets `min-release-age=7` and Dependabot a matching 7-day cooldown.)
+  - **trufflehog:** TruffleHog over the PR's commit range on `pull_request`, and the full history on `push`. Fails on verified, unknown and unverified results.
+  - **semgrep:** `semgrep ci` authenticated with the `SEMGREP_APP_TOKEN` secret, so blocking is decided by the Semgrep dashboard policies for Code and Supply Chain. When the token is unavailable (fork PRs), it falls back to `semgrep scan` with `p/default`, `p/typescript`, `p/react`, `p/nextjs` and `p/owasp-top-ten`. Both emit SARIF. (Revised during ticket 32: the fallback blocks on any finding. Its rulesets flagged the repo's missing npm release-age and Dependabot cooldown, so `.npmrc` sets `min-release-age=7` and Dependabot a matching 7-day cooldown.)
   - **sbom:** `npm sbom --sbom-format cyclonedx --omit dev`, uploaded as an artifact.
   - **docs-build:** `npm run docs:build`.
   - **build:** buildx on an arm64 runner with the GitHub Actions layer cache. Before the image is uploaded, it's scanned for embedded secrets by two tools:
@@ -118,7 +118,7 @@ Before any of that can pass, two pre-existing breakages are fixed: the client/se
     Any finding fails the job before `upload-artifact`, so a leaking image is never published. Only a clean image is uploaded as a `docker save` tarball artifact. Both scanners' SARIF goes to Code Scanning from this job, which gets `security-events: write` (uploaded with `if: always()`, so findings survive the failure they cause).
     - Exceptions: Trivy secret false positives go in a `trivy-secret.yaml` allow file, and TruffleHog ones in an exclusions file (`--exclude-paths`/`--exclude-detectors`). Both start empty, and each entry carries a reason and an expiry, the same discipline as `.trivyignore`.
 - **After the build:**
-  - **image-scan:** Trivy vulnerability scan (secrets are already covered in `build`) on the built image, failing on any severity with `--ignore-unfixed`. Exceptions live in `.trivyignore`, each with a reason and expiry. The vulnerability DB comes from the `public.ecr.aws` mirror and is cached daily.
+  - **trivy:** Trivy vulnerability scan (secrets are already covered in `build`) on the built image, failing on any severity with `--ignore-unfixed`. Exceptions live in `.trivyignore`, each with a reason and expiry. The vulnerability DB comes from the `public.ecr.aws` mirror and is cached daily.
   - **e2e:** runs inside the official Playwright v1.63.0 container on an arm64 runner. It loads the image, starts a Postgres service container, runs the image's migration entrypoint against it as the superuser, starts the app container, waits on the health endpoint, then runs Playwright. `PLAYWRIGHT_BASE_URL` disables the config's `webServer` block. The existing global setup seeds its session user directly through `DATABASE_URL` as today.
 - **Aggregate checks:**
   - **No aggregate job.** The rulesets require every gate by its job name, plus "branches up to date". Adding or renaming a gate means updating both rulesets in the same change. A required check that is skipped counts as passing. That's safe for jobs skipped because a job they need failed, since that needed job is itself required and blocks. A job must not be made conditional on anything else (e.g. a paths filter), or its required check would never report on PRs it skips.

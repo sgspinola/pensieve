@@ -151,7 +151,7 @@ npm run test:e2e
 `.github/workflows/ci.yml` runs on every pull request into `develop`/`main`
 and every push to them: lint (ESLint and actionlint), typecheck, unit
 (Vitest against a `postgres:17-alpine` service container), docs-build,
-sast-sca (Semgrep) and sbom.
+semgrep and sbom.
 The branch rulesets require each gate by its job name. Adding or renaming a
 job means updating the `develop` and `main` rulesets' required checks too.
 On PRs into `main`, `release-source` also fails unless the head branch is
@@ -159,7 +159,7 @@ On PRs into `main`, `release-source` also fails unless the head branch is
 
 ### SAST, SCA and SBOM
 
-`sast-sca` runs `semgrep ci`, authenticated with the `SEMGREP_APP_TOKEN`
+`semgrep` runs `semgrep ci`, authenticated with the `SEMGREP_APP_TOKEN`
 repository secret, so what blocks a merge is set by the Code and Supply Chain
 policies in the Semgrep dashboard, not in the workflow. Fork and Dependabot
 PRs don't get repository secrets, so they fall back to `semgrep scan` with
