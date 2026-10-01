@@ -108,7 +108,7 @@ Before any of that can pass, two pre-existing breakages are fixed: the client/se
   - **typecheck:** `tsc --noEmit`.
   - **unit:** Vitest with a `postgres:17-alpine` service container, migrated with drizzle-kit before tests.
   - **secrets:** TruffleHog over the PR's commit range on `pull_request`, and the full history on `push`. Fails on verified, unknown and unverified results.
-  - **sast-sca:** `semgrep ci` authenticated with the `SEMGREP_APP_TOKEN` secret, so blocking is decided by the Semgrep dashboard policies for Code and Supply Chain. When the token is unavailable (fork PRs), it falls back to `semgrep scan` with `p/default`, `p/typescript`, `p/react`, `p/nextjs` and `p/owasp-top-ten`. Both emit SARIF.
+  - **sast-sca:** `semgrep ci` authenticated with the `SEMGREP_APP_TOKEN` secret, so blocking is decided by the Semgrep dashboard policies for Code and Supply Chain. When the token is unavailable (fork PRs), it falls back to `semgrep scan` with `p/default`, `p/typescript`, `p/react`, `p/nextjs` and `p/owasp-top-ten`. Both emit SARIF. (Revised during ticket 32: the fallback blocks on any finding. Its rulesets flagged the repo's missing npm release-age and Dependabot cooldown, so `.npmrc` sets `min-release-age=7` and Dependabot a matching 7-day cooldown.)
   - **sbom:** `npm sbom --sbom-format cyclonedx --omit dev`, uploaded as an artifact.
   - **docs-build:** `npm run docs:build`.
   - **build:** buildx on an arm64 runner with the GitHub Actions layer cache. Before the image is uploaded, it's scanned for embedded secrets by two tools:
