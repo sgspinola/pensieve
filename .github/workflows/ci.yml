@@ -83,33 +83,39 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Semgrep
+        id: semgrep
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         run: |
           if [ -n "$SEMGREP_APP_TOKEN" ]; then
-            echo "mode=semgrep ci (dashboard policies)" > semgrep-mode.txt
+            echo "mode=semgrep ci (dashboard policies)" >> "$GITHUB_OUTPUT"
             semgrep ci --sarif-output=semgrep.sarif
           else
-            echo "mode=semgrep scan (fallback rulesets, no token)" > semgrep-mode.txt
+            echo "mode=semgrep scan (fallback rulesets, no token)" >> "$GITHUB_OUTPUT"
             semgrep scan --error --metrics=off --sarif-output=semgrep.sarif \
               --config p/default --config p/typescript --config p/react \
               --config p/nextjs --config p/owasp-top-ten
           fi
       - name: Upload SARIF
         if: always() && hashFiles('semgrep.sarif') != ''
+        # A fork PR's token can't write security events; don't fail on that.
+        continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: semgrep.sarif
           category: semgrep
       - name: Summary
         if: always()
+        env:
+          MODE: ${{ steps.semgrep.outputs.mode || 'did not run' }}
+          OUTCOME: ${{ steps.semgrep.outcome }}
         run: |
-          mode=$(sed 's/^mode=//' semgrep-mode.txt 2>/dev/null || echo "did not run")
           if [ -s semgrep.sarif ]; then
             n=$(jq '[.runs[].results[]] | length' semgrep.sarif)
-            echo "### sast-sca: $mode, $n finding(s) reported" >> "$GITHUB_STEP_SUMMARY"
+            icon=$([ "$OUTCOME" = success ] && echo ":white_check_mark:" || echo ":x:")
+            echo "### sast-sca $icon $MODE, $n finding(s) reported" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### sast-sca :x: $mode, no SARIF produced" >> "$GITHUB_STEP_SUMMARY"
+            echo "### sast-sca :x: $MODE, no SARIF produced" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # Ticket 32: a CycloneDX SBOM of the production dependencies, i.e. what
