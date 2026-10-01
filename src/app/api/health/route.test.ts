@@ -31,7 +31,7 @@ describe("GET /api/health (ticket 28)", () => {
   it("returns a safe 503 with no internal detail when the database query fails, and logs the failure", async () => {
     const logs = await useTestLogSink();
     state.execute.mockRejectedValue(
-      new Error('connect ECONNREFUSED 10.0.0.5:5432 (postgres://pensieve:s3cret@db/pensieve)'),
+      new Error('connect ECONNREFUSED 10.0.0.5:5432 (postgres://pensieve:s3cret@db/pensieve)'), // fake DSN, must not leak; trufflehog:ignore
     );
 
     try {

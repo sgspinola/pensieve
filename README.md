@@ -124,15 +124,16 @@ docker run -d --name pensieve-db --network pensieve-net -p 5433:5432 \
   -e POSTGRES_USER=pensieve -e POSTGRES_PASSWORD=pensieve -e POSTGRES_DB=pensieve \
   postgres:17-alpine
 
+# Throwaway local credentials, passed through to both containers below
+export DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve # trufflehog:ignore
+
 # Migrate: drizzle-orm's migrator, bundled in the image; exits non-zero on failure
-docker run --rm --network pensieve-net \
-  -e DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve \
+docker run --rm --network pensieve-net -e DATABASE_URL \
   pensieve migrate.cjs
 
 # Run: its HEALTHCHECK polls /api/health (`docker ps` shows healthy/unhealthy)
 docker run -d --name pensieve-app --network pensieve-net -p 3200:3000 \
-  -e DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve \
-  pensieve
+  -e DATABASE_URL pensieve
 ```
 
 To run the e2e suite against the running image instead of `next dev`, set
@@ -160,11 +161,14 @@ On PRs into `main`, `release-source` also fails unless the head branch is
 ### Secret scanning
 
 The `secrets` job runs [TruffleHog](https://github.com/trufflesecurity/trufflehog)
-over the PR's new commits (on a push, the pushed branch's full history) and
-fails on verified, unknown and unverified findings alike. Results also go to
-GitHub Code Scanning. Known-harmless findings (e.g. the throwaway Postgres URLs
-in this README) are listed by fingerprint, with a reason and an expiry, in
-`.github/trufflehog-allow.txt`.
+over just the commits under test (a PR's new commits, or a push's
+before..after range) and fails on verified, unknown and unverified findings
+alike. Results also go to GitHub Code Scanning. Older history was scanned when
+it landed, and GitHub secret scanning keeps covering it.
+
+A known-harmless finding (e.g. a throwaway local URL or a test fixture) gets a
+`trufflehog:ignore` comment on the same line, saying why. Never ignore a real
+credential: rotate it (see below).
 
 A local pre-commit hook runs the same scan over your staged changes, so most
 leaks never reach GitHub. Set it up once per clone:

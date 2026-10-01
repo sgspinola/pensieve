@@ -121,9 +121,12 @@ jobs:
         run: |
           echo "### docs-build :white_check_mark: VitePress site built" >> "$GITHUB_STEP_SUMMARY"
 
-  # Ticket 31: TruffleHog over the PR's new commits, or the full history on
-  # a push. Fails on verified, unknown and unverified results alike: an
-  # internal credential that can't be verified still blocks.
+  # Ticket 31: TruffleHog over just the commits under test: the PR's range,
+  # or a push's before..after. History older than that was scanned when it
+  # landed, and GitHub secret scanning covers it continuously. Fails on
+  # verified, unknown and unverified results alike: an internal credential
+  # that can't be verified still blocks. False positives get an inline
+  # `trufflehog:ignore` comment on the offending line.
   secrets:
     name: secrets
     runs-on: ubuntu-24.04
@@ -138,39 +141,16 @@ jobs:
           persist-credentials: false
       - name: TruffleHog
         env:
-          EVENT: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SINCE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           # --branch pins the scan to the commit under test: without it,
           # TruffleHog walks every fetched ref, including other PR branches.
-          range=(--branch "$GITHUB_SHA")
-          if [ "$EVENT" = "pull_request" ]; then
-            range=(--since-commit "$BASE_SHA" --branch "$HEAD_SHA")
-          fi
           docker run --rm -v "$PWD:/repo" \
             trufflesecurity/trufflehog:3.97.9@sha256:52e67fef4d054ecff5c2ce4b4ae376626d1ef54aa0898b53cac19c25e92e14db \
-            git file:///repo "${range[@]}" \
-            --results=verified,unknown,unverified --fail-on-scan-errors --no-update --sarif \
-            > trufflehog-raw.sarif
-      # TruffleHog has no allowlist for history, so accepted findings are
-      # dropped from the SARIF by fingerprint (.github/trufflehog-allow.txt),
-      # and the job fails on whatever remains.
-      - name: Apply allowlist
-        run: |
-          today=$(date -u +%F)
-          allow=$(awk -v today="$today" '!/^#/ && NF >= 3 && $2 >= today { print $1 }' \
-            .github/trufflehog-allow.txt | jq -R . | jq -s .)
-          awk -v today="$today" '!/^#/ && NF >= 3 && $2 < today { print "::warning::Expired TruffleHog allowlist entry " $1 " (" $2 ")" }' \
-            .github/trufflehog-allow.txt
-          jq --argjson allow "$allow" \
-            '.runs[].results |= map(select(.partialFingerprints["trufflehogFingerprint/v1"] as $f | $allow | index($f) | not))' \
-            trufflehog-raw.sarif > trufflehog.sarif
-          n=$(jq '[.runs[].results[]] | length' trufflehog.sarif)
-          if [ "$n" -gt 0 ]; then
-            jq -r '.runs[].results[] | "::error file=\(.locations[0].physicalLocation.artifactLocation.uri),line=\(.locations[0].physicalLocation.region.startLine)::\(.message.text) (fingerprint \(.partialFingerprints["trufflehogFingerprint/v1"]))"' trufflehog.sarif
-            exit 1
-          fi
+            git file:///repo --since-commit "$SINCE" --branch "$HEAD_SHA" \
+            --results=verified,unknown,unverified --fail --fail-on-scan-errors --no-update --sarif \
+            > trufflehog.sarif
       - name: Upload SARIF
         if: always() && hashFiles('trufflehog.sarif') != ''
         # A fork PR's token can't write security events; don't fail on that.
@@ -181,17 +161,13 @@ jobs:
           category: trufflehog-repo
       - name: Summary
         if: always()
-        env:
-          EVENT: ${{ github.event_name }}
         run: |
-          scope=$([ "$EVENT" = "pull_request" ] && echo "PR commits" || echo "full history")
           if [ -s trufflehog.sarif ]; then
             n=$(jq '[.runs[].results[]] | length' trufflehog.sarif)
-            total=$(jq '[.runs[].results[]] | length' trufflehog-raw.sarif)
             icon=$([ "$n" -eq 0 ] && echo ":white_check_mark:" || echo ":x:")
-            echo "### secrets $icon TruffleHog ($scope): $n finding(s), $((total - n)) allowlisted" >> "$GITHUB_STEP_SUMMARY"
+            echo "### secrets $icon TruffleHog: $n finding(s)" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### secrets :x: TruffleHog ($scope) produced no SARIF" >> "$GITHUB_STEP_SUMMARY"
+            echo "### secrets :x: TruffleHog produced no SARIF" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # Required by the main ruleset: releases reach main only from develop, and
