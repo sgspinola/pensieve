@@ -9,6 +9,10 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "daily"
+    # Ticket 32: matches .npmrc's min-release-age (npm couldn't resolve a
+    # younger version anyway). Security updates ignore cooldowns.
+    cooldown:
+      default-days: 7
     ignore:
       # Ticket 27: typescript-eslint supports `typescript >=4.8.4 <6.1.0`;
       # TypeScript 7 crashes ESLint on startup. Drop this once
@@ -22,6 +26,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       actions-minor-patch:
         update-types: ["minor", "patch"]

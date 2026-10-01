@@ -150,11 +150,35 @@ npm run test:e2e
 
 `.github/workflows/ci.yml` runs on every pull request into `develop`/`main`
 and every push to them: lint (ESLint and actionlint), typecheck, unit
-(Vitest against a `postgres:17-alpine` service container), and docs-build.
+(Vitest against a `postgres:17-alpine` service container), docs-build,
+semgrep and sbom.
 The branch rulesets require each gate by its job name. Adding or renaming a
 job means updating the `develop` and `main` rulesets' required checks too.
 On PRs into `main`, `release-source` also fails unless the head branch is
 `develop`.
+
+### SAST, SCA and SBOM
+
+`semgrep` runs `semgrep ci`, authenticated with the `SEMGREP_APP_TOKEN`
+repository secret, so what blocks a merge is set by the Code and Supply Chain
+policies in the Semgrep dashboard, not in the workflow. Fork and Dependabot
+PRs don't get repository secrets, so they fall back to `semgrep scan` with
+`p/default`, `p/typescript`, `p/react`, `p/nextjs` and `p/owasp-top-ten`,
+failing on any finding. Both paths report to GitHub Code Scanning. To run the
+fallback locally:
+
+```bash
+semgrep scan --error --config p/default --config p/typescript \
+  --config p/react --config p/nextjs --config p/owasp-top-ten
+```
+
+`sbom` records the production dependencies (what ships in the image) as a
+CycloneDX SBOM, kept as a workflow artifact for 90 days
+(`npm sbom --sbom-format cyclonedx --omit dev`).
+
+`.npmrc` sets `min-release-age=7`, so `npm install` only resolves versions
+published at least a week ago (`npm ci` installs the lockfile as-is), and
+Dependabot waits the same 7 days before proposing a version update.
 
 ## Other scripts
 
