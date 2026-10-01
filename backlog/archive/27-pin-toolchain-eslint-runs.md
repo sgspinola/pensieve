@@ -8,7 +8,7 @@
 
 **Completed:** on `feat/27-pin-toolchain-eslint-runs`
 
-**Pull Request:** _not yet opened — branch is local only; add the URL once pushed_
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/9
 
 - [x] TypeScript pinned to exactly 6.0.3; lockfile updated
 - [x] Dependabot npm config ignores `typescript` versions ≥ 7
