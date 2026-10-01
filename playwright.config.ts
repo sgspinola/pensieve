@@ -6,7 +6,11 @@ import { defineConfig, devices } from "@playwright/test";
 // someone already has open. `reuseExistingServer` still lets you point this
 // at an already-running server on this port if you prefer.
 const PORT = process.env.PLAYWRIGHT_PORT ?? "3100";
-const baseURL = `http://localhost:${PORT}`;
+// Ticket 29: set PLAYWRIGHT_BASE_URL to run the suite against an
+// already-running app (e.g. the production container image) instead of
+// booting `next dev`; global setup still seeds through DATABASE_URL.
+const externalBaseURL = process.env.PLAYWRIGHT_BASE_URL;
+const baseURL = externalBaseURL ?? `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -31,12 +35,14 @@ export default defineConfig({
   // Boots the real app (same DB this repo's Vitest suite already talks to
   // via DATABASE_URL) rather than mocking anything — these are smoke tests
   // for the actual rendered app, not a component harness.
-  webServer: {
-    command: `npm run dev -- -p ${PORT}`,
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: externalBaseURL
+    ? undefined
+    : {
+        command: `npm run dev -- -p ${PORT}`,
+        url: baseURL,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
   projects: [
     {
       name: "chromium",

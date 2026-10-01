@@ -1,0 +1,28 @@
+# Denylist build context for the production image (ticket 29).
+#
+# `.env*` is the critical entry: `next build` copies `.env` and
+# `.env.production` into `.next/standalone`, so a local env file left in the
+# context would ship inside the image.
+.env*
+*.pem
+
+# VCS, dependencies and build output: rebuilt inside the image.
+.git
+node_modules
+.next
+dist
+
+# Local tooling, test and log output.
+coverage
+logs
+e2e/.auth
+test-results
+playwright-report
+blob-report
+graphify-out
+docs/.vitepress/cache
+docs/.vitepress/dist
+.claude
+.venv
+*.tsbuildinfo
+TODO.md

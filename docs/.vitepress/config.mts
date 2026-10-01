@@ -43,6 +43,7 @@ export default withMermaid({
           { text: "Database Schema", link: "/architecture/database-schema" },
           { text: "Module Structure", link: "/architecture/module-structure" },
           { text: "Error Handling & Logging", link: "/architecture/error-handling-logging" },
+          { text: "Deployable Image", link: "/architecture/deployable-image" },
         ],
       },
       {
