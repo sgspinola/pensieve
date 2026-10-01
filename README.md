@@ -159,5 +159,5 @@ succeed, and is the one check the branch rulesets require. On PRs into
 
 ```bash
 npm run lint   # ESLint
-npx tsc --noEmit   # typecheck
+npm run typecheck   # next typegen + tsc --noEmit
 ```

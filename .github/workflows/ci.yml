@@ -69,10 +69,12 @@ jobs:
           cache: npm
       - run: npm install --global "npm@${NPM_VERSION}"
       - run: npm ci
-      - run: npx tsc --noEmit
+      # `next typegen` first: PageProps/LayoutProps and next-env.d.ts are
+      # generated, so a fresh checkout can't typecheck without them.
+      - run: npm run typecheck
       - name: Summary
         run: |
-          echo "### typecheck :white_check_mark: tsc --noEmit passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "### typecheck :white_check_mark: next typegen + tsc --noEmit passed" >> "$GITHUB_STEP_SUMMARY"
 
   unit:
     name: unit
