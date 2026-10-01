@@ -16,6 +16,14 @@ export default defineConfig({
   reporter: "list",
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
+  // Ticket 26: specs and global setup/teardown seed data by importing server modules
+  // (db client, services) straight into this Node process. Those modules
+  // `import "server-only"`, which throws unless resolved with the
+  // `react-server` condition Next's own server bundles use — this tsconfig
+  // maps it to the package's no-op for the test runner only (Next never
+  // reads it), the same move vitest.config.ts makes with an alias. Its
+  // `paths` repeats `@/*` because `paths` replaces, not merges, the base's.
+  tsconfig: "./tsconfig.playwright.json",
   use: {
     baseURL,
     trace: "on-first-retry",
