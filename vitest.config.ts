@@ -14,6 +14,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
+      // Ticket 26: `server-only` throws unless resolved with the `react-server`
+      // condition, which Next's server bundles set and Vitest doesn't. Tests
+      // run server-side code in Node, so point it at the package's own no-op.
+      "server-only": path.resolve(__dirname, "node_modules/server-only/empty.js"),
     },
   },
 });

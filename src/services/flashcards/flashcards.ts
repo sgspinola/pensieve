@@ -8,6 +8,7 @@ import { NotFoundError, UnauthorizedError, ValidationError } from "@/services/er
 import type { SessionUser } from "@/services/auth/session";
 import { createCursorPagination } from "@/services/cursor-pagination";
 import { changedFieldNames, logMutationFailure, logMutationSuccess } from "@/services/mutation-log";
+import { canDeleteFlashcard } from "@/services/flashcards/permissions";
 import {
   getTagNamesForFlashcards,
   normalizeTagName,
@@ -19,6 +20,9 @@ import { hasTags, TAGS_REQUIRED_ERROR } from "@/services/tags/validation";
 
 const logger = getLogger(["pensieve", "flashcards"]);
 const ENTITY = "flashcards";
+
+// Ticket 26 moved this to client-safe permissions.ts; re-exported for server callers.
+export { canDeleteFlashcard };
 
 export type Flashcard = typeof flashcards.$inferSelect;
 
@@ -117,18 +121,6 @@ export async function getFlashcard(db: Database, id: string): Promise<Flashcard>
     throw new NotFoundError("Flashcard not found");
   }
   return row;
-}
-
-/**
- * Pure predicate for delete eligibility: the admin may delete any
- * flashcard, a member may delete only their own — the same rule
- * items.ts's canModifyItem uses. (Originally creator-only with no admin
- * case at all; that asymmetry had no recorded rationale and was reversed.)
- * Exported for reuse by both deleteFlashcard's own check and client UI
- * that decides whether to render a delete control at all.
- */
-export function canDeleteFlashcard(actor: SessionUser, flashcard: { createdBy: string }): boolean {
-  return actor.role === "admin" || actor.id === flashcard.createdBy;
 }
 
 export interface UpdateFlashcardInput {
