@@ -6,7 +6,7 @@
 # The globs become `--exclude-paths` (absolute paths inside the image). Every
 # entry needs a reason and an expiry; an expired entry stops applying, so the
 # finding blocks again until someone re-reviews it. Never exclude a real
-# credential: rotate it instead (see README, "If a secret is found").
+# credential: rotate it instead.
 
 # The distroless base's dpkg checksum lists: md5 hashes trip the Box
 # detector (seen on libc6.md5sums). Not secrets.

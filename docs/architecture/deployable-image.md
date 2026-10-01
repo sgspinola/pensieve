@@ -90,5 +90,5 @@ Any finding fails the job before the upload step, so a leaking image is never do
 
 Scanner false positives are recorded per tool, each with a reason and an expiry:
 
-- Trivy in `trivy-secret.yaml`.
-- TruffleHog in `.github/trufflehog-image-exclude.txt`. It already excludes the distroless base's dpkg `*.md5sums` lists, which trip its Box detector.
+- Trivy in `trivy-secret.yaml`. Trivy has no expiry field, so the expiry goes in each rule's description and is reviewed by hand.
+- TruffleHog in `.github/trufflehog-image-exclude.txt`. The job drops expired entries, so the finding blocks again. The file already excludes the distroless base's dpkg `*.md5sums` lists, which trip its Box detector.
