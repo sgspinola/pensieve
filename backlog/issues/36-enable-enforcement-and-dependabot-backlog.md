@@ -13,3 +13,11 @@
 - [ ] Verified a PR into `main` from a branch other than `develop` is blocked by `release-source`
 - [ ] Dependabot PRs #1–#4 rebased so CI runs on them; patch bumps merged once green
 - [ ] mermaid 11→12 PR merged only if `docs-build` passes and the diagrams render correctly locally (`npm run docs:dev`); otherwise closed with a note
+
+**Progress (2026-10-02, on `feat/36-enable-enforcement-and-dependabot-backlog`):**
+
+- `SEMGREP_APP_TOKEN` is present in the repository secrets. The Semgrep dashboard policies can't be checked from the API.
+- Rulesets are only partly configured. Both are strict. `protect-develop` requires `lint`, `typecheck`, `unit`, `docs-build`, `e2e` and `trivy`, and is missing `trufflehog`, `semgrep`, `sbom` and `build`. `protect-main` requires `unit`, `typecheck`, `docs-build`, `lint` and `release-source`, and is missing `trufflehog`, `semgrep`, `sbom`, `build`, `trivy` and `e2e`. `ci.yml`'s jobs are `lint`, `typecheck`, `semgrep`, `sbom`, `unit`, `docs-build`, `trufflehog`, `release-source`, `build`, `trivy` and `e2e`.
+- CodeQL default setup is still `not-configured`.
+- Dependabot PRs #1–#4 have never had CI run (no checks reported). They still need `@dependabot rebase`.
+- mermaid 11→12 (#1) is not mergeable. `vitepress-plugin-mermaid@2.0.17`, the latest release, declares peer `mermaid "10 || 11"`, so `npm ci` fails with ERESOLVE (verified locally with #1 merged onto `develop`). Close #1 with that note. mermaid 12 is deliberately not ignored in `.github/dependabot.yml`, so the update can be picked up as soon as a compatible plugin release exists.
