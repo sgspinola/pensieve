@@ -153,7 +153,8 @@ npm run test:e2e
 and every push to them: lint (ESLint, actionlint and hadolint), typecheck,
 unit (Vitest against a `postgres:17-alpine` service container), docs-build,
 trufflehog, semgrep, sbom, build (the arm64 image, secret-scanned before
-upload) and e2e (the Playwright suite against that built image); see
+upload), trivy (the built image's vulnerability scan) and e2e (the Playwright
+suite against that built image); see
 [Deployable image](docs/architecture/deployable-image.md#building-in-ci) and
 [Testing the image](docs/architecture/deployable-image.md#testing-the-image).
 The branch rulesets require each gate by its job name. Adding or renaming a
@@ -214,6 +215,16 @@ CycloneDX SBOM, kept as a workflow artifact for 90 days
 `.npmrc` sets `min-release-age=7`, so `npm install` only resolves versions
 published at least a week ago (`npm ci` installs the lockfile as-is), and
 Dependabot waits the same 7 days before proposing a version update.
+
+### Image vulnerability scan
+
+`trivy` scans the image `build` produced for known vulnerabilities in its
+Debian packages and its bundled npm packages, failing on any severity that has
+a fix available. Unfixable findings don't block. To ship a fixable one anyway,
+add its ID to `.trivyignore` with a comment giving the reason and an
+`exp:YYYY-MM-DD` expiry; once that date passes, the finding fails the scan
+again. Trivy doesn't detect the Node binary in the distroless base, so Node
+itself is kept current by Dependabot's weekly base-image digest bumps.
 
 ## Other scripts
 

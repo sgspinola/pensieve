@@ -21,6 +21,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Shared by the build job's secret scan and the trivy job's vulnerability scan.
+  TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+
 # One run per workflow + ref. Superseded PR runs are cancelled; pushes to
 # develop/main always run to completion.
 concurrency:
@@ -320,8 +324,7 @@ jobs:
         run: docker save pensieve:ci -o "$RUNNER_TEMP/pensieve-image.tar"
       - name: Trivy secret scan
         run: >
-          docker run --rm -v "$RUNNER_TEMP:/scan:ro" -v "$PWD:/repo"
-          aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+          docker run --rm -v "$RUNNER_TEMP:/scan:ro" -v "$PWD:/repo" "$TRIVY_IMAGE"
           image --input /scan/pensieve-image.tar
           --scanners secret --image-config-scanners secret
           --secret-config /repo/trivy-secret.yaml
@@ -350,6 +353,84 @@ jobs:
           trivy=$(count trivy-secret.sarif)
           icon=$([ "$trivy" = 0 ] && echo ":white_check_mark:" || echo ":x:")
           echo "### build $icon linux/arm64 image; Trivy secret findings: $trivy" >> "$GITHUB_STEP_SUMMARY"
+
+  # Ticket 34: known vulnerabilities in the built image, both Debian packages
+  # and the npm packages in the standalone bundle (secrets were scanned in
+  # `build`). Fails on any severity, but only when a fix exists. Reviewed
+  # exceptions go in .trivyignore, with a reason and an `exp:` date Trivy
+  # enforces. Trivy can't see the distroless Node binary itself (it isn't a
+  # dpkg package); Dependabot's base-image digest bumps keep that current.
+  trivy:
+    name: trivy
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pensieve-image
+          path: ${{ runner.temp }}/image
+      # One vulnerability DB per day: restored from the cache, or pulled from
+      # the public.ecr.aws mirror. As in `build`, only pushes save it (PRs can
+      # read develop's), and it's saved before the scan so no image-layer
+      # cache ends up in it.
+      - name: Cache key
+        id: day
+        run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: db-cache
+        with:
+          path: ${{ runner.temp }}/trivy-cache
+          key: trivy-db-${{ steps.day.outputs.date }}
+          restore-keys: trivy-db-
+      - name: Download vulnerability DB
+        if: steps.db-cache.outputs.cache-hit != 'true'
+        run: >
+          docker run --rm -v "$RUNNER_TEMP/trivy-cache:/cache" "$TRIVY_IMAGE"
+          image --cache-dir /cache --download-db-only --no-progress
+          --db-repository public.ecr.aws/aquasecurity/trivy-db:2
+      - if: github.event_name == 'push' && steps.db-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/trivy-cache
+          key: trivy-db-${{ steps.day.outputs.date }}
+      - name: Trivy vulnerability scan
+        run: >
+          docker run --rm -v "$RUNNER_TEMP/image:/scan:ro" -v "$RUNNER_TEMP/trivy-cache:/cache"
+          -v "$PWD:/repo" "$TRIVY_IMAGE"
+          image --input /scan/pensieve-image.tar --cache-dir /cache --skip-db-update
+          --scanners vuln --ignore-unfixed --ignorefile /repo/.trivyignore
+          --exit-code 1 --format sarif --output /repo/trivy-vuln.sarif
+      - name: Upload SARIF
+        if: always() && hashFiles('trivy-vuln.sarif') != ''
+        # A fork PR's token can't write security events; don't fail on that.
+        continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy-vuln.sarif
+          category: trivy-image-vulns
+      - name: Summary
+        if: always()
+        run: |
+          if [ -s trivy-vuln.sarif ]; then
+            n=$(jq '[.runs[].results[]] | length' trivy-vuln.sarif)
+            icon=$([ "$n" -eq 0 ] && echo ":white_check_mark:" || echo ":x:")
+            echo "### trivy $icon $n fixable vulnerabilit$([ "$n" -eq 1 ] && echo y || echo ies) in the image" >> "$GITHUB_STEP_SUMMARY"
+            # Each result's message is "Key: value" lines (Package, Severity, ...).
+            # The first 20 are listed; the rest are in Code Scanning.
+            jq -r '[.runs[].results[]][:20][]
+              | (.message.text | [split("\n")[] | capture("^(?<key>[^:]+): (?<value>.*)$")] | from_entries) as $m
+              | "- `\(.ruleId)` \($m.Severity): \($m.Package) \($m["Installed Version"]), fixed in \($m["Fixed Version"])"' \
+              trivy-vuln.sarif >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### trivy :x: Trivy produced no SARIF" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # Ticket 35: the Playwright suite against the built image itself, so a
   # broken standalone output, Dockerfile, migration entrypoint or hydration
