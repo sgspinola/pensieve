@@ -153,8 +153,10 @@ npm run test:e2e
 and every push to them: lint (ESLint, actionlint and hadolint), typecheck,
 unit (Vitest against a `postgres:17-alpine` service container), docs-build,
 trufflehog, semgrep, sbom, build (the arm64 image, secret-scanned before
-upload) and trivy (the built image's vulnerability scan); see
-[Deployable image](docs/architecture/deployable-image.md#building-in-ci).
+upload), trivy (the built image's vulnerability scan) and e2e (the Playwright
+suite against that built image); see
+[Deployable image](docs/architecture/deployable-image.md#building-in-ci) and
+[Testing the image](docs/architecture/deployable-image.md#testing-the-image).
 The branch rulesets require each gate by its job name. Adding or renaming a
 job means updating the `develop` and `main` rulesets' required checks too.
 On PRs into `main`, `release-source` also fails unless the head branch is
