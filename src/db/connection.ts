@@ -24,8 +24,15 @@ export type ConnectionConfig =
       ssl: { ca: string; rejectUnauthorized: true };
     };
 
+/** Who an IAM token is for: RDS signs it for one host, port and database user. */
+export interface TokenTarget {
+  hostname: string;
+  port: number;
+  username: string;
+}
+
 export interface ConnectionDeps {
-  signToken: (target: { hostname: string; port: number; username: string }) => Promise<string>;
+  signToken: (target: TokenTarget) => Promise<string>;
   readCaBundle: () => string;
 }
 
@@ -40,6 +47,9 @@ export function getConnectionConfig(env: Record<string, string | undefined>, dep
   }
   const host = env.PGHOST!;
   const port = Number(env.PGPORT);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`PGPORT must be a port number, got "${env.PGPORT}"`);
+  }
   const username = env.PGUSER!;
   return {
     host,
@@ -54,17 +64,19 @@ export function getConnectionConfig(env: Record<string, string | undefined>, dep
 // Relative to the working directory: `/app` in the image, the repo root locally.
 const RDS_CA_BUNDLE = path.join(process.cwd(), "certs", "rds-global-bundle.pem");
 
-// One signer per process (the target never changes), so its credential
-// provider is reused; each getAuthToken() call still signs a new token.
-let signer: Signer | undefined;
-
 const awsDeps: ConnectionDeps = {
-  signToken: (target) => (signer ??= new Signer(target)).getAuthToken(),
+  // The region comes from AWS_REGION, which ECS sets in every task, and the
+  // credentials from the default chain (the task role, in ECS).
+  signToken: (target) => new Signer(target).getAuthToken(),
   readCaBundle: () => readFileSync(RDS_CA_BUNDLE, "utf8"),
 };
 
-/** Opens a postgres.js client for whichever mode the environment selects. */
+/**
+ * Opens a postgres.js client for whichever mode the environment selects.
+ * `options` tune the client (pool size, timeouts); in IAM mode the connection
+ * settings, including the token password and verified TLS, always win.
+ */
 export function connect(options: postgres.Options<Record<string, never>> = {}): postgres.Sql {
   const config = getConnectionConfig(process.env, awsDeps);
-  return "url" in config ? postgres(config.url, options) : postgres({ ...config, ...options });
+  return "url" in config ? postgres(config.url, options) : postgres({ ...options, ...config });
 }
