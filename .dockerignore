@@ -5,6 +5,8 @@
 # context would ship inside the image.
 .env*
 *.pem
+# Ticket 40: the public RDS CA bundle the image verifies RDS TLS against.
+!certs/rds-global-bundle.pem
 
 # VCS, dependencies and build output: rebuilt inside the image.
 .git

@@ -1,7 +1,7 @@
 import "server-only";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import { getDatabaseUrl } from "./env";
+import type postgres from "postgres";
+import { connect } from "./connection";
 import * as schema from "./schema";
 
 export type Database = PostgresJsDatabase<typeof schema>;
@@ -13,7 +13,7 @@ let db: Database | undefined;
 // under test) never opens a connection until the app/test actually needs one.
 export function getDb(): Database {
   if (!db) {
-    sql = postgres(getDatabaseUrl());
+    sql = connect();
     db = drizzle(sql, { schema });
   }
   return db;

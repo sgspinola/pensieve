@@ -14,19 +14,19 @@ Several constraints shape this:
 ## Solution
 
 Terraform in two root configurations:
-- A tiny **bootstrap** config, applied once from the maintainer's laptop, creates what everything else depends on: an encrypted, versioned S3 state bucket with native lockfile locking, the GitHub OIDC identity provider, and two narrowly scoped CI roles (ECR push, read-only plan).
+- A tiny **bootstrap** config, applied once from the maintainer's laptop, creates what everything else depends on: an encrypted, versioned S3 state bucket with native lockfile locking, the GitHub OIDC identity provider, and four narrowly scoped CI roles: ECR push, read-only plan, and the `deploy-app` and `deploy-db` roles used by the manually dispatched deploy workflows (specs 12 and 13).
 - The main **prod** config, in eu-north-1 (Stockholm, the cheapest EU region for this stack), stores its state in that bucket and provisions:
   - a VPC with the app task in a private subnet behind a NAT Gateway
   - a single-AZ RDS PostgreSQL 17 instance with 35-day point-in-time recovery and deletion protection
   - an ECS Fargate (arm64) service running the app plus a `cloudflared` sidecar
-  - an ECR repository
+  - two ECR repositories: `pensieve` for the app image and `pensieve-db` for the DB image (spec 13)
   - CloudWatch log groups
   - AWS Budgets alerts
   - and, through the Cloudflare provider, the Tunnel and DNS for `pensieve.fyi`
 
 There's **no load balancer and no inbound port at all**. The `cloudflared` sidecar dials out to Cloudflare, so the origin is unreachable from the internet by construction, which is a stronger guarantee than mTLS between Cloudflare and an ALB, and about $25/month cheaper.
 
-The app authenticates to Postgres with **RDS IAM authentication**: short-lived tokens signed with the task's IAM role, so no database password exists in the app task. A dedicated migrator role owns the schema; the app role can only read and write rows. A one-off bootstrap task, the only thing allowed to read the RDS-managed master secret, creates those roles once. The app refuses to start if its bundled migrations haven't all been applied.
+The app authenticates to Postgres with **RDS IAM authentication**: short-lived tokens signed with the task's IAM role, so no database password exists in the app task. A dedicated migrator role owns the schema; the app role can only read and write rows. This spec provides the AWS side of the database lifecycle: the instance, IAM auth, the task definitions, the task roles and the deploy roles. Spec 13 owns the rest: the role and grant model, the DB image, the bootstrap, migrations and the app's startup schema check.
 
 CI gains Terraform formatting, validation, linting and a read-only `plan` on pull requests, carefully arranged so that no secret (in particular the tunnel token held in state) can leak into public logs or artifacts.
 
@@ -65,24 +65,25 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 31. As the maintainer, I want the RDS master password generated and rotated by RDS itself, so that it never appears in Terraform state or code.
 32. As the maintainer, I want the app to connect with an IAM-authenticated database user, so that no database password exists in the app task at all.
 33. As the maintainer, I want the app's database user to be limited to reading and writing rows, so that a compromised app can't alter or drop the schema.
-34. As the maintainer, I want a separate migrator user that owns the schema, so that DDL rights exist only in the migration task.
+34. As the maintainer, I want a separate migrator user that owns the schema, so that DDL rights exist only in the migration task (which runs the DB image, spec 13).
 35. As the maintainer, I want each task's IAM role able to log in only as its own database user, so that the app task can't impersonate the migrator.
 36. As the maintainer, I want new tables automatically granted to the app user, so that a new migration can't silently break the app with a missing grant.
-37. As the maintainer, I want the master credential used only by a one-off database bootstrap task, so that routine tasks never hold it.
-38. As the maintainer, I want the database bootstrap to be idempotent, so that I can re-run it safely if roles or grants change.
+37. As the maintainer, I want the master credential readable only by a one-off database bootstrap task that only I can launch, so that routine tasks and CI never hold it, not even indirectly.
+38. As the maintainer, I want the database bootstrap to be idempotent, so that I can re-run it safely if roles or grants change (spec 13).
 39. As a developer, I want local development and CI to keep using a plain `DATABASE_URL`, so that IAM authentication doesn't complicate anything outside AWS.
 40. As an operator, I want database connections to RDS encrypted and verified against the RDS certificate authority, so that IAM auth's TLS requirement is met properly.
-41. As an operator, I want the app to refuse to start when its bundled migrations haven't all been applied, so that a deploy that skipped migrating fails fast instead of running against the wrong schema.
+41. As an operator, I want the app to refuse to start when the schema is incompatible with it, so that a deploy in the wrong order fails fast instead of running against the wrong schema. Spec 13 defines the two-sided check.
 42. As an operator, I want ECS to roll back automatically when a new task fails to become healthy, so that a bad deploy doesn't leave the app down.
 43. As an operator, I want the old and new app versions never to run at the same time, so that a migration only ever has to be compatible with one version.
 44. As an operator, I want container health judged by the app's health endpoint, so that ECS replaces a task whose database connection is broken.
 45. As an operator, I want app, sidecar and one-off task logs in CloudWatch with 30-day retention, so that I can investigate recent problems without paying to keep logs forever.
-46. As the maintainer, I want an ECR repository with immutable tags, so that a published image tag always means the same bytes.
+46. As the maintainer, I want separate ECR repositories for the app and DB images, both with immutable tags, so that the two artifacts are released independently and a published tag always means the same bytes.
 47. As the maintainer, I want ECR to keep only the last 10 published images and expire untagged ones quickly, so that registry storage doesn't grow unbounded.
 48. As the maintainer, I want ECR lifecycle rules not to orphan or delete signatures and SBOM referrers of images that are kept, so that kept images stay verifiable.
 49. As the maintainer, I want budget alerts at $10 actual and $20 forecast, so that I'm told early every month that something is running and costing money.
 50. As the maintainer, I want the tunnel token kept only in encrypted state and marked sensitive, so that it never appears in plan output.
-51. As the maintainer, I want no IAM role for continuous deployment until CD exists, so that there's no unused privileged identity to attack.
+51. As the maintainer, I want separate deploy roles for the app and the database, each assumable only from its own approval-gated GitHub Environment on `main`, so that deploying needs my explicit approval and a compromised app deploy can't touch the database.
+52. As the maintainer, I want the app service to start at zero tasks and Terraform to ignore its desired count and task definition, so that the first deploy and every later one belong to the deploy workflows without causing drift.
 
 ## Implementation Decisions
 
@@ -100,9 +101,23 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 **Bootstrap config:**
 - **State bucket:** KMS encryption, versioning, public access blocked, and a bucket policy limiting access to the maintainer's admin role and the plan role. Locking uses the S3 native lockfile (`use_lockfile`), with no DynamoDB table.
 - **GitHub OIDC provider.**
-- **ECR push role:** trust is limited to the `main` branch of `sgspinola/pensieve`. It can only push to the pensieve repository.
+- **ECR push role:** trust is limited to the `main` branch of `sgspinola/pensieve`. It can only push to the `pensieve` and `pensieve-db` repositories.
 - **Plan role:** trust is limited to the `plan` GitHub Environment of the repository. It has AWS read-only access plus read access to the state bucket and its lockfile.
-- No deploy/CD role until CD exists.
+- **`deploy-app` role:** trust is limited to the `prod-app` GitHub Environment on `main`. It can:
+  - describe and pull from the `pensieve` repository
+  - register task definitions in the app family
+  - update and describe the one ECS service
+  - `iam:PassRole` for the app task and execution roles only
+- **`deploy-db` role:** trust is limited to the `prod-db` GitHub Environment on `main`. It can:
+  - describe and read both repositories, so that `cosign verify` can fetch signatures
+  - update and describe the service
+  - register app and migrate task-definition revisions, and `ecs:RunTask`/`DescribeTasks` on the migrate family only
+  - `iam:PassRole` for the app and migrate task and execution roles only
+  - `rds:CreateDBSnapshot`, `DescribeDBSnapshots` and `AddTagsToResource` on the instance
+  - `rds:DeleteDBSnapshot` only on snapshots named `pensieve-predeploy-*`
+  - read CloudWatch Logs for the migrate log group
+
+  It has no access to the bootstrap task family, its roles, or the master secret. It has no RDS modify, restore or delete-instance permissions.
 
 **Network:**
 - **VPC:** subnets in two AZs, because AWS requires an RDS subnet group to span at least two. The ECS task and the RDS instance each run in a single AZ.
@@ -122,11 +137,9 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 - **Encryption:** storage encrypted with the AWS-managed RDS key.
 - **Master password:** managed by RDS (`manage_master_user_password`), so it never enters state.
 - **IAM database authentication** is enabled on the instance.
-- **Database roles:**
-  - **Migrator role:** owns the schema and performs DDL.
-  - **App role:** `SELECT`/`INSERT`/`UPDATE`/`DELETE` on tables and `USAGE` on sequences, granted through `ALTER DEFAULT PRIVILEGES FOR ROLE <migrator>`, so tables the migrator creates later are covered automatically. No DDL, and no access to Drizzle's migration-bookkeeping schema.
-  - Both roles are granted `rds_iam`, which disables password login for them.
-- **Database bootstrap task:** a one-off ECS task definition running the same image with a bootstrap entrypoint. It connects as master using the RDS-managed master secret, and its task definition is the only one allowed to read that secret. It idempotently creates both roles, grants `rds_iam`, and sets up ownership and default privileges. It runs once after the first apply, and again only if the role model changes.
+- **Database roles** (migrator and app, both granted `rds_iam`, which disables password login) are defined in spec 13, together with their grants and the bootstrap that creates them.
+- **Database bootstrap task:** a one-off ECS task definition on the **DB image** (spec 13) with its bootstrap entrypoint. It connects as master using the RDS-managed master secret. Its task role is the only principal allowed to read that secret, and only the maintainer's local `db-bootstrap` script launches it. No GitHub role can run it or pass its roles.
+- **Migrate task:** a one-off ECS task definition on the DB image, run by the `deploy-db` workflow (spec 13).
 - **IAM policies:** the migrate task's role may `rds-db:connect` only as the migrator user, and the app task's role only as the app user. Neither task holds any database secret.
 
 **Application changes:**
@@ -134,23 +147,23 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
   - When `DATABASE_URL` is set, it behaves as today (local development, CI).
   - Otherwise it builds the connection from host, port, database name and user environment variables. The password is an async function that signs a fresh 15-minute IAM token per new connection using the AWS SDK's RDS signer, with the task role's credentials.
   - TLS uses the bundled RDS CA certificate bundle shipped in the image.
-- The Drizzle migrator entrypoint (spec 10) uses the same helper, so it gains IAM mode for free.
-- **Startup schema check:** at boot, the app compares the migrations bundled in the image with those recorded in the database. If any are pending, it exits with an error, so the container never becomes healthy and ECS's circuit breaker rolls back.
+- The DB image's migrate and bootstrap entrypoints (spec 13) use the same helper, so they gain IAM mode for free. The bootstrap connects as the master user with the master secret instead of a token.
+- **Startup schema check:** the two-sided compatibility check defined in spec 13. If the schema is incompatible, the app exits with an error, so the container never becomes healthy and ECS's circuit breaker rolls back.
 
 **Compute:**
 - ECS cluster on Fargate, `ARM64`. One service with a desired count of 1. Task size 0.25 vCPU / 1 GB, shared by the app and the `cloudflared` sidecar.
 - **Deployment configuration:** minimum healthy 0%, maximum 100%, so the old task stops before the new one starts and two versions never coexist. Deployment circuit breaker with rollback enabled.
 - **Container health check:** the image's Node health script against the health endpoint.
-- **Task definition ownership:** Terraform creates the initial task definitions (app, migrate, db-bootstrap). The service ignores later changes to its task definition, so deploys (spec 12) register new revisions without causing Terraform drift.
+- **Task definition ownership:** Terraform creates the initial task definitions: app on the app image, and migrate and db-bootstrap on the DB image. The service is created with a desired count of 0 and ignores later changes to its task definition and desired count. The deploy workflows (specs 12 and 13) and the local bootstrap script register new revisions without causing Terraform drift.
 - Task execution role and per-task task roles, with least privilege as described.
 
-**Registry:** an ECR repository with immutable tags. Lifecycle policy: keep the last 10 `sha-*` images and expire untagged images after 1 day. The rules must keep the cosign signature and SBOM referrer artifacts attached to kept images; verify this when spec 12 first publishes.
+**Registry:** two ECR repositories, `pensieve` (app) and `pensieve-db` (DB image, spec 13), with identical settings. Each has immutable tags. Lifecycle policy: keep the last 50 `sha-*` images (a `tagPatternList` rule) and expire untagged images after 1 day. No archive tier: archived images can't be pulled, and restoring one takes up to 20 minutes. (Revised during ticket 38's reversal: the count was 10. Every push to `main` now publishes, and deploys are manual, so the running image can be several releases old. ECR doesn't protect an image a running task uses: once its digest expires, any replacement task fails to pull. 50 makes that need 50 releases without a deploy, for well under $1/month of storage.) Cosign signatures and SBOMs are stored as OCI 1.1 referrers (spec 12). ECR protects those while their image exists and removes them after it's deleted. Legacy `sha256-….sig` tags would be ordinary tagged images, never cleaned up. Verify both when spec 12 first publishes.
 
 **Observability and cost:**
 - CloudWatch log groups for the app, `cloudflared`, migrate and db-bootstrap, each with 30-day retention, written through the `awslogs` driver from the app's existing JSON-lines stdout.
 - **AWS Budgets:** a monthly budget with notifications at $10 actual and $20 forecast to the maintainer's email. These are expected to fire every month as a "something is running" signal. No CloudWatch alarms.
 
-**CI `iac` job** (added to the spec 10 workflow, running only when infrastructure code is present):
+**CI `iac` job** (added to the spec 10 workflow, running on every PR and push like every other job, and added to both rulesets' required checks by name; revised during ticket 38's reversal, which dropped path-conditional jobs and the `gate` job):
 - `terraform fmt -check`, `validate` (initialised without a backend), and tflint with the AWS plugin.
 - On `pull_request` from same-repository branches only, `terraform plan` runs in the `plan` GitHub Environment. It authenticates to AWS via OIDC as the plan role, and to Cloudflare with a read-only (Zone and Tunnel read) API token stored as an environment secret.
 - The plan's text output goes to the run summary. No plan file is written as an artifact, and `TF_LOG` is never set.
@@ -160,20 +173,20 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 - a Cloudflare API token for local applies
 - a read-only Cloudflare token for the `plan` environment
 - creating the `plan` GitHub Environment
+- creating the `prod-app` and `prod-db` GitHub Environments, each with the maintainer as required reviewer and deployments limited to `main`
 
 ## Testing Decisions
 
 - **Good tests verify behaviour visible from outside the module:** what a role can and can't do, what the helper connects with, whether startup is refused. They don't check how those things are implemented.
-- **DB grants (Vitest database seam):** using the existing `createTestDb` harness, run the bootstrap's role and grant logic against the test database with a stub `rds_iam` role, since vanilla Postgres has none. Then apply migrations as the migrator and connect as the app role. Assert that the app role can select, insert, update and delete in a migrated table; that it's refused DDL (e.g. creating or dropping a table); and that a table created by the migrator *after* bootstrap is still writable by the app role, which proves default privileges work. This catches a missing grant before production, independent of e2e, which runs as superuser.
-- **Startup schema check (Vitest database seam):** against the test database, the check reports up to date when every bundled migration is recorded, and reports pending when one is missing.
+- **DB grants, migrator and startup schema check:** their Vitest database-seam tests are defined in spec 13.
 - **Connection helper (pure unit tests):** given `DATABASE_URL`, it yields URL-based config. Otherwise it yields host/user config whose password function calls the injected token signer, a test double, on each invocation, and enables TLS with the CA bundle.
 - **Terraform** isn't unit-tested: `fmt`, `validate`, tflint and the CI plan cover it, and the first real apply proves it.
 - **Prior art:** the existing service-layer tests built on `createTestDb` (e.g. the ping service test), and the existing pure-function tests in the lib directory.
 
 ## Out of Scope
 
-- Continuous deployment, and the CI deploy role it would need.
-- Publishing images to ECR, signing, SBOM referrers, and the deploy/migrate scripts and runbooks (spec 12).
+- Publishing images to ECR, signing, SBOM referrers, the `deploy-app` workflow and the runbooks (spec 12).
+- The DB image, bootstrap SQL, migrations, the `deploy-db` workflow and the local bootstrap script (spec 13).
 - Staging or any non-production environment.
 - Multi-AZ RDS or more than one task.
 - Cross-region or cross-account backup copies (AWS Backup, Vault Lock).

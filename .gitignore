@@ -36,6 +36,8 @@
 # misc
 .DS_Store
 *.pem
+# Ticket 40: AWS's public RDS CA bundle (not a key), shipped in the image.
+!/certs/rds-global-bundle.pem
 TODO.md
 
 # debug

@@ -1,8 +1,7 @@
 import path from "node:path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import postgres from "postgres";
-import { getDatabaseUrl } from "@/db/env";
+import { connect } from "@/db/connection";
 
 /**
  * Ticket 29: the container image's migration entrypoint
@@ -19,7 +18,7 @@ const CONNECT_TIMEOUT_SECONDS = 10;
 
 async function main(): Promise<void> {
   // Notices (e.g. "schema already exists, skipping") are noise on a rerun.
-  const sql = postgres(getDatabaseUrl(), {
+  const sql = connect({
     max: 1,
     connect_timeout: CONNECT_TIMEOUT_SECONDS,
     onnotice: () => {},
