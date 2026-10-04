@@ -39,6 +39,10 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder --chown=65532:65532 /app/.next/standalone/.next/cache ./.next/cache
 COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/dist/ops/migrate.cjs /app/dist/ops/healthcheck.cjs ./
+# Ticket 40: RDS's public CA bundle (truststore.pki.rds.amazonaws.com, global),
+# which src/db/connection.ts verifies the database's TLS certificate against
+# in IAM-auth mode.
+COPY --from=builder /app/certs/rds-global-bundle.pem ./certs/
 
 # distroless's `nonroot` user, by number so runtimes can verify it isn't root.
 USER 65532:65532

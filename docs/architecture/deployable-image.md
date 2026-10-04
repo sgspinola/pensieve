@@ -7,8 +7,8 @@ The production artifact is a single container image, built by the root `Dockerfi
 ```mermaid
 flowchart LR
     subgraph Context["Build context (.dockerignore denylist)"]
-        Src["src/, package*.json,<br/>next.config.ts, drizzle/"]
-        Env[".env*, *.pem, .git,<br/>node_modules, .next, …"]
+        Src["src/, package*.json,<br/>next.config.ts, drizzle/,<br/>certs/rds-global-bundle.pem"]
+        Env[".env*, other *.pem, .git,<br/>node_modules, .next, …"]
     end
 
     subgraph Builder["builder stage — node:24-trixie-slim"]
@@ -24,6 +24,7 @@ flowchart LR
         Drizzle["drizzle/*.sql"]
         Migrate["migrate.cjs"]
         Health["healthcheck.cjs"]
+        Ca["certs/rds-global-bundle.pem"]
     end
 
     Src --> Ci --> Build --> Server
@@ -31,6 +32,7 @@ flowchart LR
     Src --> Esb --> Migrate
     Esb --> Health
     Src --> Drizzle
+    Src --> Ca
     Env -.->|"excluded: never<br/>reaches the build"| Builder
 ```
 
@@ -38,7 +40,8 @@ Only the right-hand box ships. The builder stage holds the full toolchain and de
 
 - **Standalone output** (`next.config.ts`). `next build` traces what `server.js` actually imports and copies only those files from `node_modules`. That trace is why the image needs no `npm install`, and it's also why a local `.env` is dangerous: Next copies `.env` and `.env.production` into `.next/standalone`. `.dockerignore` keeps every `.env*` out of the build context, so it never gets the chance.
 - **No `sharp`.** `sharp` is an optional dependency of `next` that the server trace would otherwise pull in, along with its native libvips. Nothing uses `next/image`, so `images.unoptimized` turns off the optimizer and `outputFileTracingExcludes["next-server"]` drops `sharp`/`@img` from the trace.
-- **Bundled ops entrypoints.** The standalone trace only follows what the server imports, so it leaves out drizzle-orm's migrator. esbuild bundles `src/ops/migrate.ts` (with drizzle-orm, postgres.js and `src/db/env.ts`'s `getDatabaseUrl`) and `src/ops/healthcheck.ts` into self-contained CommonJS files. That way the runtime needs neither drizzle-kit nor `tsx`.
+- **Bundled ops entrypoints.** The standalone trace only follows what the server imports, so it leaves out drizzle-orm's migrator. esbuild bundles `src/ops/migrate.ts` (with drizzle-orm, postgres.js and the `src/db/connection.ts` connection helper, including the AWS RDS signer) and `src/ops/healthcheck.ts` into self-contained CommonJS files. That way the runtime needs neither drizzle-kit nor `tsx`.
+- **RDS CA bundle.** In AWS the app and `migrate.cjs` connect with RDS IAM auth instead of a `DATABASE_URL`, which requires TLS. `certs/rds-global-bundle.pem` is AWS's public RDS CA bundle, committed to the repo and copied into the image, and the connection helper verifies the database's certificate against it. It's the one `*.pem` the `.gitignore` and `.dockerignore` let through.
 - **Hardening.** The runtime base has no shell or package manager and runs as distroless's `nonroot` user, set by number (`65532`) so a runtime can verify it isn't root. Application files are root-owned, so the app user can only read them. The one writable path is `.next/cache`. Both base images are pinned by multi-arch index digest.
 
 ## Running the image
@@ -51,15 +54,15 @@ sequenceDiagram
     participant HC as healthcheck.cjs (HEALTHCHECK)
     participant DB as Postgres
 
-    Op->>Mig: docker run <image> migrate.cjs (DATABASE_URL)
+    Op->>Mig: docker run <image> migrate.cjs (DATABASE_URL, or PG* vars for RDS IAM)
     Mig->>DB: drizzle migrate(./drizzle)
     alt applied (or already up to date)
         Mig-->>Op: exit 0
-    else unreachable DB, bad SQL, DATABASE_URL unset
+    else unreachable DB, bad SQL, no DATABASE_URL or PG* vars
         Mig-->>Op: exit 1 + "Migration failed: … (cause)"
     end
 
-    Op->>App: docker run <image> (DATABASE_URL, PORT=3000)
+    Op->>App: docker run <image> (DATABASE_URL or PG* vars, PORT=3000)
     loop every 30s
         HC->>App: GET 127.0.0.1:3000/api/health (4s timeout)
         App->>DB: select 1 (2s timeout)
