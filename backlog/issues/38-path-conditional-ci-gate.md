@@ -4,13 +4,26 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** in-review: implemented and verified on `feat/38-path-conditional-ci-gate`; the ruleset switch (below) runs at merge time
 
-- [ ] `changes` job computes changed paths against the PR base (`pull_request`) or `before` (`push`) and exposes one output per area
-- [ ] Each job's `if:` matches spec 10's matrix: trufflehog always; lint, typecheck, semgrep-sast, semgrep-sca, sbom, unit, docs-build, and build/trivy/e2e on their listed paths
-- [ ] Any change under `.github/workflows/` or `.github/actions/` runs every job; a push to `main` runs every job regardless of paths; paths outside the matrix (README, `backlog/`) run only `trufflehog`
-- [ ] `semgrep` is split into `semgrep-sast` (Code only) and `semgrep-sca` (Supply Chain only). Both keep the token / fork-fallback behaviour, SARIF upload and blocking semantics
-- [ ] `gate` job: `if: always()`, `needs` every other job, and fails when any needed job's result is `failure` or `cancelled`. `skipped` counts as passing
-- [ ] Verified by real runs: a docs-only PR skips the app jobs and `gate` passes; a `src/` PR runs them; a deliberately failing job makes `gate` fail
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/28
+
+- [x] `changes` job computes changed paths against the PR base (`pull_request`) or `before` (`push`) and exposes one output per area
+- [x] Each job's `if:` matches spec 10's matrix: trufflehog always; lint, typecheck, semgrep-sast, semgrep-sca, sbom, unit, docs-build, and build/trivy/e2e on their listed paths
+- [x] Any change under `.github/workflows/` or `.github/actions/` runs every job; a push to `main` runs every job regardless of paths; paths outside the matrix (README, `backlog/`) run only `trufflehog`
+- [x] `semgrep` is split into `semgrep-sast` (Code only) and `semgrep-sca` (Supply Chain only). Both keep the token / fork-fallback behaviour, SARIF upload and blocking semantics
+- [x] `gate` job: `if: always()`, `needs` every other job, and fails when any needed job's result is `failure` or `cancelled`. `skipped` counts as passing
+- [x] Verified by real runs: a docs-only PR skips the app jobs and `gate` passes; a `src/` PR runs them; a deliberately failing job makes `gate` fail
 - [ ] The `develop` and `main` rulesets require `ci / gate` (plus `release-source` on `main`) instead of every job by name, keeping strict up-to-date enforcement
-- [ ] The workflow's header comment and the spec 10 revision notes reflect "add a job to `gate`'s `needs`, not to the rulesets"
+- [x] The workflow's header comment and the spec 10 revision notes reflect "add a job to `gate`'s `needs`, not to the rulesets"
+
+**Verification (real runs):** throwaway draft PRs into a base branch that only added a temporary trigger (closed unmerged afterwards):
+- docs-only, [#29](https://github.com/sgspinola/pensieve/pull/29) ([run](https://github.com/sgspinola/pensieve/actions/runs/37212675983)): only `changes`, `trufflehog` and `docs-build` ran; every app job was skipped; `gate` passed.
+- `src/`-only, [#30](https://github.com/sgspinola/pensieve/pull/30) ([run](https://github.com/sgspinola/pensieve/actions/runs/37212678460)): lint, typecheck, semgrep-sast, unit, build, trivy and e2e ran; docs-build, sbom and semgrep-sca were skipped; `gate` passed.
+- deliberately failing unit test, [#31](https://github.com/sgspinola/pensieve/pull/31) ([run](https://github.com/sgspinola/pensieve/actions/runs/37212678768)): `unit` failed, so `gate` failed ("Failed or cancelled: unit").
+- PR #28 itself changes the workflow, so every job ran and `gate` passed.
+
+Those runs predate the review follow-up, which widened lint/typecheck/unit/build paths to every real input (any TS/JS file, `tsconfig*`, `drizzle.config.ts`) and renamed the `image` output to `build`. That follow-up was dry-run locally against synthetic changes and gets its own CI run on #28.
+
+**Rulesets (unchecked item):** not switched yet, on purpose. Requiring `gate` before this merges would block every other open PR, since `develop`'s workflow has no `gate` job. The exact command, which preserves the other rules and strict mode, is in PR #28's description. Run it right before merging, then tick the item, set this ticket to `done` and `git mv` it to `backlog/archive/`.
+

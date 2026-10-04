@@ -34,7 +34,9 @@ concurrency:
 
 jobs:
   # Ticket 38: one output per job, "true" when that job's inputs changed
-  # (spec 10, "Path-conditional jobs"). The diff is the PR against its merge
+  # (spec 10, "Path-conditional jobs"); trivy and e2e follow `build`, which
+  # they need. Adding a job means an output here, an `area` line below, an
+  # `if:` on the job and an entry in `gate`'s `needs`. The diff is the PR against its merge
   # base, or a push's before..after. Everything runs on a push to main (a
   # release), on any change to the workflows or composite actions, and
   # whenever the diff can't be computed. Paths no job lists (README,
@@ -51,7 +53,7 @@ jobs:
       sbom: ${{ steps.areas.outputs.sbom }}
       unit: ${{ steps.areas.outputs.unit }}
       docs-build: ${{ steps.areas.outputs.docs-build }}
-      image: ${{ steps.areas.outputs.image }}
+      build: ${{ steps.areas.outputs.build }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,13 +83,15 @@ jobs:
           fi
 
           # Path patterns (extended regexes over repo-relative paths).
+          # tsc and ESLint cover every TypeScript/JavaScript file in the repo
+          # (root configs, docs/.vitepress), not just src/ and e2e/.
           src='^src/'
           e2e='^e2e/'
           pkg='^(package\.json|package-lock\.json|\.npmrc|\.nvmrc)$'
           tsconfig='^tsconfig[^/]*\.json$'
-          configs='^(eslint\.config\.mjs|next\.config\.ts|vitest\.config\.ts|playwright\.config\.ts|drizzle\.config\.ts|tsconfig[^/]*\.json)$'
+          scripts='\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$'
           dockerfiles='(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$'
-          image="$src|$e2e|^drizzle/|^certs/|$pkg|^Dockerfile$|^\.dockerignore$|^next\.config\.ts$|^playwright\.config\.ts$|^trivy-secret\.yaml$|^\.trivyignore$"
+          app_image='^Dockerfile$|^\.dockerignore$|^next\.config\.ts$|^playwright\.config\.ts$|^trivy-secret\.yaml$|^\.trivyignore$|^certs/'
 
           area() { # area <output> <pattern>
             local value=false
@@ -101,14 +105,14 @@ jobs:
             echo "| job | runs |"
             echo "| --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
-          area lint "$src|$e2e|$configs|$pkg|$dockerfiles"
-          area typecheck "$src|$e2e|$tsconfig|$pkg"
+          area lint "$src|$e2e|$scripts|$tsconfig|$pkg|$dockerfiles"
+          area typecheck "$src|$e2e|$scripts|$tsconfig|$pkg"
           area semgrep-sast "$src|$dockerfiles|^infra/"
           area semgrep-sca "$pkg"
           area sbom "$pkg"
-          area unit "$src|^drizzle/|$pkg|^vitest\.config\.ts$"
+          area unit "$src|^drizzle/|$tsconfig|$pkg|^vitest\.config\.ts$|^drizzle\.config\.ts$"
           area docs-build "^docs/|$pkg"
-          area image "$image"
+          area build "$src|$e2e|^drizzle/|$tsconfig|$pkg|$app_image"
 
   lint:
     name: lint
@@ -212,7 +216,7 @@ jobs:
             echo "### semgrep-sast :x: $MODE, no SARIF produced" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # Supply Chain needs the Semgrep App: there's no tokenless mode. Without the
+  # Ticket 38: Supply Chain needs the Semgrep App; there's no tokenless mode. Without the
   # token (fork and Dependabot PRs) this job can't scan, so it says so and
   # passes, as the single semgrep job's fallback never covered dependencies
   # either. Those PRs' dependency vulnerabilities are still caught by trivy,
@@ -438,7 +442,7 @@ jobs:
   build:
     name: build
     needs: changes
-    if: needs.changes.outputs.image == 'true'
+    if: needs.changes.outputs.build == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     permissions:

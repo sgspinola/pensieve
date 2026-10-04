@@ -113,7 +113,8 @@ Before any of that can pass, two pre-existing breakages are fixed: the client/se
     - **sbom:** package files.
     - **unit:** `src/`, `drizzle/`, package files, the Vitest config.
     - **docs-build:** `docs/`, package files.
-    - **build, trivy and e2e:** `src/`, `e2e/`, `drizzle/`, package files, the app `Dockerfile`, `.dockerignore`, the Next config. (Revised during ticket 38: also the Playwright config, `trivy-secret.yaml`, `.trivyignore` and `certs/`, since each is an input to one of these three jobs.)
+    - **build, trivy and e2e:** `src/`, `e2e/`, `drizzle/`, package files, the app `Dockerfile`, `.dockerignore`, the Next config. (Revised during ticket 38: also the Playwright config, `trivy-secret.yaml`, `.trivyignore`, `certs/` and `tsconfig*`, since each is an input to one of these three jobs.)
+    - (Revised during ticket 38: every job's paths cover all of its real inputs. `tsc` and ESLint cover every TypeScript/JavaScript file in the repo, so **lint** and **typecheck** also run on any `.ts`/`.mts`/`.js`/`.mjs` file anywhere (e.g. the root configs, `docs/.vitepress/config.mts`). **unit** also runs on `tsconfig*` (path aliases) and `drizzle.config.ts` (its drizzle-kit migrate step).)
   - Any change under `.github/workflows/` or `.github/actions/` runs every job.
   - A push to `main` (a release) runs every job regardless of paths.
   - Paths not listed (README, `backlog/`, specs) run only `trufflehog`.
