@@ -15,7 +15,8 @@ name: CI
 
 on:
   pull_request:
-    branches: [develop, main]
+    # TEMPORARY (ticket 38 verification only, never merged)
+    branches: [develop, main, ci-test/38-base]
   push:
     branches: [develop, main]
 
