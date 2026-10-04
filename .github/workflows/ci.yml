@@ -1,9 +1,10 @@
 # Ticket 30: the single workflow that gates every change into develop/main
-# (spec: backlog/specs/10-ci-pipeline.md). Gate jobs run in parallel, and
-# the develop/main rulesets require each one by its job name (plus
-# `release-source` on main). Adding or renaming a gate therefore means
-# updating both rulesets' required checks too, or the new name never blocks
-# a merge.
+# (spec: backlog/specs/10-ci-pipeline.md). Ticket 38: a first `changes` job
+# works out which areas a change touched, and each job runs only when its
+# inputs did (its `if:`). The final `gate` job needs every other job and is
+# the only check the develop/main rulesets require (plus `release-source` on
+# main). To add or rename a job, add it to `gate`'s `needs`, not to the
+# rulesets: a job missing from that list never blocks a merge.
 #
 # Baseline every job follows: least-privilege permissions (read-only here,
 # extra scopes granted per job), third-party actions pinned to a full commit
@@ -32,8 +33,87 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Ticket 38: one output per job, "true" when that job's inputs changed
+  # (spec 10, "Path-conditional jobs"). The diff is the PR against its merge
+  # base, or a push's before..after. Everything runs on a push to main (a
+  # release), on any change to the workflows or composite actions, and
+  # whenever the diff can't be computed. Paths no job lists (README,
+  # backlog/, ...) run only trufflehog, which doesn't depend on this job.
+  changes:
+    name: changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      lint: ${{ steps.areas.outputs.lint }}
+      typecheck: ${{ steps.areas.outputs.typecheck }}
+      semgrep-sast: ${{ steps.areas.outputs.semgrep-sast }}
+      semgrep-sca: ${{ steps.areas.outputs.semgrep-sca }}
+      sbom: ${{ steps.areas.outputs.sbom }}
+      unit: ${{ steps.areas.outputs.unit }}
+      docs-build: ${{ steps.areas.outputs.docs-build }}
+      image: ${{ steps.areas.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Changed areas
+        id: areas
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          # Three dots for a PR: its changes since the merge base, whatever
+          # has landed on the base branch since. Two for a push.
+          RANGE: >-
+            ${{ github.event_name == 'pull_request'
+              && format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha)
+              || format('{0}..{1}', github.event.before, github.sha) }}
+        run: |
+          all=false
+          if [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
+            all=true reason="push to main"
+          elif ! files=$(git diff --name-only "$RANGE" 2>/dev/null); then
+            # e.g. a first push, whose `before` is all zeros, or a force-push
+            # whose old commit is gone.
+            all=true reason="no diff for $RANGE"
+          elif grep -qE '^\.github/(workflows|actions)/' <<<"$files"; then
+            all=true reason="workflow or composite action changed"
+          fi
+
+          # Path patterns (extended regexes over repo-relative paths).
+          src='^src/'
+          e2e='^e2e/'
+          pkg='^(package\.json|package-lock\.json|\.npmrc|\.nvmrc)$'
+          tsconfig='^tsconfig[^/]*\.json$'
+          configs='^(eslint\.config\.mjs|next\.config\.ts|vitest\.config\.ts|playwright\.config\.ts|drizzle\.config\.ts|tsconfig[^/]*\.json)$'
+          dockerfiles='(^|/)Dockerfile[^/]*$|(^|/)\.dockerignore$'
+          image="$src|$e2e|^drizzle/|^certs/|$pkg|^Dockerfile$|^\.dockerignore$|^next\.config\.ts$|^playwright\.config\.ts$|^trivy-secret\.yaml$|^\.trivyignore$"
+
+          area() { # area <output> <pattern>
+            local value=false
+            if [ "$all" = true ] || grep -qE "$2" <<<"$files"; then value=true; fi
+            echo "$1=$value" >> "$GITHUB_OUTPUT"
+            echo "| $1 | $value |" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          {
+            echo "### changes: ${reason:-$(grep -c . <<<"$files") changed file(s) in $RANGE}"
+            echo "| job | runs |"
+            echo "| --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          area lint "$src|$e2e|$configs|$pkg|$dockerfiles"
+          area typecheck "$src|$e2e|$tsconfig|$pkg"
+          area semgrep-sast "$src|$dockerfiles|^infra/"
+          area semgrep-sca "$pkg"
+          area sbom "$pkg"
+          area unit "$src|^drizzle/|$pkg|^vitest\.config\.ts$"
+          area docs-build "^docs/|$pkg"
+          area image "$image"
+
   lint:
     name: lint
+    needs: changes
+    if: needs.changes.outputs.lint == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -60,6 +140,8 @@ jobs:
 
   typecheck:
     name: typecheck
+    needs: changes
+    if: needs.changes.outputs.typecheck == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -72,12 +154,15 @@ jobs:
         run: |
           echo "### typecheck :white_check_mark: next typegen + tsc --noEmit passed" >> "$GITHUB_STEP_SUMMARY"
 
-  # Ticket 32: SAST and SCA. With SEMGREP_APP_TOKEN, `semgrep ci` lets the
-  # Semgrep dashboard's Code and Supply Chain policies decide what blocks.
-  # Fork and Dependabot PRs get no repository secrets, so they fall back to
+  # Ticket 32: SAST and SCA, split by ticket 38 so each runs on its own
+  # paths. With SEMGREP_APP_TOKEN, `semgrep ci` lets the Semgrep dashboard's
+  # policies decide what blocks: Code here, Supply Chain in semgrep-sca. Fork
+  # and Dependabot PRs get no repository secrets, so this job falls back to
   # `semgrep scan` with fixed rulesets, blocking on any finding.
-  semgrep:
-    name: semgrep
+  semgrep-sast:
+    name: semgrep-sast
+    needs: changes
+    if: needs.changes.outputs.semgrep-sast == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -91,14 +176,14 @@ jobs:
           # `semgrep ci` diffs a PR against its merge base.
           fetch-depth: 0
           persist-credentials: false
-      - name: Semgrep
+      - name: Semgrep Code
         id: semgrep
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
         run: |
           if [ -n "$SEMGREP_APP_TOKEN" ]; then
-            echo "mode=semgrep ci (dashboard policies)" >> "$GITHUB_OUTPUT"
-            semgrep ci --sarif-output=semgrep.sarif
+            echo "mode=semgrep ci --code (dashboard policies)" >> "$GITHUB_OUTPUT"
+            semgrep ci --code --sarif-output=semgrep.sarif
           else
             echo "mode=semgrep scan (fallback rulesets, no token)" >> "$GITHUB_OUTPUT"
             semgrep scan --error --metrics=off --sarif-output=semgrep.sarif \
@@ -112,7 +197,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: semgrep.sarif
-          category: semgrep
+          category: semgrep-sast
       - name: Summary
         if: always()
         env:
@@ -122,15 +207,75 @@ jobs:
           if [ -s semgrep.sarif ]; then
             n=$(jq '[.runs[].results[]] | length' semgrep.sarif)
             icon=$([ "$OUTCOME" = success ] && echo ":white_check_mark:" || echo ":x:")
-            echo "### semgrep $icon $MODE, $n finding(s) reported" >> "$GITHUB_STEP_SUMMARY"
+            echo "### semgrep-sast $icon $MODE, $n finding(s) reported" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### semgrep :x: $MODE, no SARIF produced" >> "$GITHUB_STEP_SUMMARY"
+            echo "### semgrep-sast :x: $MODE, no SARIF produced" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Supply Chain needs the Semgrep App: there's no tokenless mode. Without the
+  # token (fork and Dependabot PRs) this job can't scan, so it says so and
+  # passes, as the single semgrep job's fallback never covered dependencies
+  # either. Those PRs' dependency vulnerabilities are still caught by trivy,
+  # which also runs on package-file changes and scans the image's npm bundle.
+  semgrep-sca:
+    name: semgrep-sca
+    needs: changes
+    if: needs.changes.outputs.semgrep-sca == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    container:
+      image: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # `semgrep ci` diffs a PR against its merge base.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Semgrep Supply Chain
+        id: semgrep
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: |
+          if [ -n "$SEMGREP_APP_TOKEN" ]; then
+            echo "mode=semgrep ci --supply-chain (dashboard policies)" >> "$GITHUB_OUTPUT"
+            semgrep ci --supply-chain --sarif-output=semgrep.sarif
+          else
+            echo "mode=not scanned (Supply Chain needs SEMGREP_APP_TOKEN)" >> "$GITHUB_OUTPUT"
+            echo "::warning::No SEMGREP_APP_TOKEN: Semgrep Supply Chain skipped; trivy covers the image's dependencies"
+          fi
+      - name: Upload SARIF
+        if: always() && hashFiles('semgrep.sarif') != ''
+        # A fork PR's token can't write security events; don't fail on that.
+        continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep-sca
+      - name: Summary
+        if: always()
+        env:
+          MODE: ${{ steps.semgrep.outputs.mode || 'did not run' }}
+          OUTCOME: ${{ steps.semgrep.outcome }}
+        run: |
+          if [ -s semgrep.sarif ]; then
+            n=$(jq '[.runs[].results[]] | length' semgrep.sarif)
+            icon=$([ "$OUTCOME" = success ] && echo ":white_check_mark:" || echo ":x:")
+            echo "### semgrep-sca $icon $MODE, $n finding(s) reported" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$OUTCOME" = success ]; then
+            echo "### semgrep-sca :warning: $MODE" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### semgrep-sca :x: $MODE, no SARIF produced" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # Ticket 32: a CycloneDX SBOM of the production dependencies, i.e. what
   # ships in the image, kept for 90 days.
   sbom:
     name: sbom
+    needs: changes
+    if: needs.changes.outputs.sbom == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -153,6 +298,8 @@ jobs:
 
   unit:
     name: unit
+    needs: changes
+    if: needs.changes.outputs.unit == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     services:
@@ -197,6 +344,8 @@ jobs:
 
   docs-build:
     name: docs-build
+    needs: changes
+    if: needs.changes.outputs.docs-build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -288,6 +437,8 @@ jobs:
   # finding fails the job before upload-artifact; SARIF goes up either way.
   build:
     name: build
+    needs: changes
+    if: needs.changes.outputs.image == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     permissions:
@@ -518,3 +669,44 @@ jobs:
           else
             echo "### e2e :x: Playwright did not run (see the image, migrate and app steps)" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # Ticket 38: the one check the rulesets require. It runs after every other
+  # job, whatever their outcome, and fails if any of them failed or was
+  # cancelled. A skipped job (its inputs didn't change, or a job it needs was
+  # skipped) counts as passing. A job missing from `needs` here never blocks.
+  gate:
+    name: gate
+    if: always()
+    needs:
+      - changes
+      - lint
+      - typecheck
+      - semgrep-sast
+      - semgrep-sca
+      - sbom
+      - unit
+      - docs-build
+      - trufflehog
+      - release-source
+      - build
+      - trivy
+      - e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check needed jobs
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          {
+            echo "| job | result |"
+            echo "| --- | --- |"
+            jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' <<<"$NEEDS"
+          } > results.md
+          blocking=$(jq -r '[to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key] | join(", ")' <<<"$NEEDS")
+          if [ -n "$blocking" ]; then
+            { echo "### gate :x: blocked by $blocking"; cat results.md; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Failed or cancelled: $blocking"
+            exit 1
+          fi
+          { echo "### gate :white_check_mark: no job failed or was cancelled"; cat results.md; } >> "$GITHUB_STEP_SUMMARY"

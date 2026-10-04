@@ -152,15 +152,21 @@ npm run test:e2e
 `.github/workflows/ci.yml` runs on every pull request into `develop`/`main`
 and every push to them: lint (ESLint, actionlint and hadolint), typecheck,
 unit (Vitest against a `postgres:17-alpine` service container), docs-build,
-trufflehog, semgrep, sbom, build (the arm64 image, secret-scanned before
+trufflehog, semgrep-sast, semgrep-sca, sbom, build (the arm64 image, secret-scanned before
 upload), trivy (the built image's vulnerability scan) and e2e (the Playwright
 suite against that built image); see
 [Deployable image](docs/architecture/deployable-image.md#building-in-ci) and
 [Testing the image](docs/architecture/deployable-image.md#testing-the-image).
-The branch rulesets require each gate by its job name. Adding or renaming a
-job means updating the `develop` and `main` rulesets' required checks too.
-On PRs into `main`, `release-source` also fails unless the head branch is
-`develop`.
+A first `changes` job diffs the change against the PR's merge base (or a
+push's `before`), and each job runs only when its inputs changed: docs-only
+changes skip the app jobs, and a change outside every job's paths (README,
+`backlog/`) runs only `trufflehog`. Any change to the workflows or composite
+actions, and every push to `main`, runs everything. A final `gate` job needs
+every other job and fails if any failed or was cancelled (skipped counts as
+passing). It's the only check the `develop` and `main` rulesets require, so
+adding or renaming a job means adding it to `gate`'s `needs`, not to the
+rulesets. On PRs into `main`, `release-source` also fails unless the head
+branch is `develop`, and the `main` ruleset requires it too.
 
 ### Secret scanning
 
@@ -195,13 +201,16 @@ compromised even if the commit or image is removed:
 
 ### SAST, SCA and SBOM
 
-`semgrep` runs `semgrep ci`, authenticated with the `SEMGREP_APP_TOKEN`
-repository secret, so what blocks a merge is set by the Code and Supply Chain
-policies in the Semgrep dashboard, not in the workflow. Fork and Dependabot
-PRs don't get repository secrets, so they fall back to `semgrep scan` with
-`p/default`, `p/typescript`, `p/react`, `p/nextjs` and `p/owasp-top-ten`,
-failing on any finding. Both paths report to GitHub Code Scanning. To run the
-fallback locally:
+`semgrep-sast` runs `semgrep ci --code` and `semgrep-sca` runs
+`semgrep ci --supply-chain` (on package-file changes), both authenticated with
+the `SEMGREP_APP_TOKEN` repository secret, so what blocks a merge is set by
+the Code and Supply Chain policies in the Semgrep dashboard, not in the
+workflow. Fork and Dependabot PRs don't get repository secrets, so
+`semgrep-sast` falls back to `semgrep scan` with `p/default`,
+`p/typescript`, `p/react`, `p/nextjs` and `p/owasp-top-ten`, failing on any
+finding. Supply Chain has no tokenless mode, so there `semgrep-sca` warns
+and passes; `trivy` still scans the image's npm dependencies. Both jobs
+report to GitHub Code Scanning. To run the SAST fallback locally:
 
 ```bash
 semgrep scan --error --config p/default --config p/typescript \
