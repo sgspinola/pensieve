@@ -1,0 +1,8 @@
+# Ticket 46: Terraform's working directories and local state. The bootstrap
+# config's state is local by design and stays on the maintainer's laptop; the
+# prod config's state is in S3. .terraform.lock.hcl IS committed.
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfplan
