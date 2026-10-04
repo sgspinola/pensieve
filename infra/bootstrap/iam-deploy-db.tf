@@ -53,7 +53,7 @@ data "aws_iam_policy_document" "deploy_db" {
   statement {
     sid       = "WatchTasks"
     actions   = ["ecs:DescribeTasks"]
-    resources = ["arn:aws:ecs:${local.region}:${local.account_id}:task/${local.ecs_cluster}/*"]
+    resources = [local.ecs_cluster_tasks]
   }
 
   statement {
@@ -62,6 +62,7 @@ data "aws_iam_policy_document" "deploy_db" {
     resources = [local.ecs_service_arn]
   }
 
+  # As in deploy-app: only with an app-family task definition.
   statement {
     sid       = "UpdateServiceToAppRevision"
     actions   = ["ecs:UpdateService"]
@@ -95,7 +96,7 @@ data "aws_iam_policy_document" "deploy_db" {
   statement {
     sid       = "DescribeSnapshots"
     actions   = ["rds:DescribeDBSnapshots"]
-    resources = [local.rds_instance_arn, "arn:aws:rds:${local.region}:${local.account_id}:snapshot:*"]
+    resources = [local.rds_instance_arn, local.all_snapshots]
   }
 
   statement {

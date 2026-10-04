@@ -11,13 +11,16 @@ infrastructure depends on, once, from the maintainer's laptop:
   | Role | Trusted from | Can |
   | --- | --- | --- |
   | `pensieve-github-ecr-push` | pushes to `main` | push to the `pensieve` and `pensieve-db` ECR repositories |
-  | `pensieve-github-plan` | the `plan` Environment | read-only AWS, read the state and its lockfile |
+  | `pensieve-github-plan` | the `plan` Environment | read-only AWS, read the state and its lockfile (and the tunnel-token secret, which the state already holds) |
   | `pensieve-github-deploy-app` | the `prod-app` Environment on `main` | roll the service to a new app task-definition revision |
   | `pensieve-github-deploy-db` | the `prod-db` Environment on `main` | snapshot, run the migrate task, roll the service |
 
 The deploy roles are scoped by ARN to resources the prod config creates later
 (cluster, service, task families, task roles, log group, RDS instance). Their
-names live in `names.tf`, and prod must use exactly those.
+names live in `names.tf`, and prod must use exactly those, including one
+execution role per task family. Both deploy roles may only `UpdateService`
+with an app-family task definition, so every deploy passes one, even the
+first (the service starts at desired count 0).
 
 State is local (`terraform.tfstate` here, git-ignored) on purpose: this config
 creates the bucket remote state would need. Nothing in it is secret, and every

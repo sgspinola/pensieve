@@ -2,7 +2,7 @@
 # job exchanges its short-lived GitHub token for one of the roles below, and
 # each role's trust policy decides which jobs may (iam-*.tf).
 resource "aws_iam_openid_connect_provider" "github" {
-  url            = "https://token.actions.githubusercontent.com"
+  url            = "https://${local.github_oidc}"
   client_id_list = ["sts.amazonaws.com"]
   # No thumbprint_list: AWS verifies GitHub's certificate against its own
   # trusted CA library for this provider.

@@ -23,7 +23,7 @@ data "aws_iam_policy_document" "deploy_app" {
       "ecr:GetDownloadUrlForLayer",
       "ecr:BatchCheckLayerAvailability",
     ]
-    resources = ["arn:aws:ecr:${local.region}:${local.account_id}:repository/pensieve"]
+    resources = [local.ecr_repository_arn["pensieve"]]
   }
 
   statement {
@@ -44,6 +44,9 @@ data "aws_iam_policy_document" "deploy_app" {
     resources = [local.ecs_service_arn]
   }
 
+  # Only with a task definition in the app family: a call that changes
+  # nothing but the desired count is denied, so every deploy (including the
+  # first, from desired count 0) passes the task definition it rolls out.
   statement {
     sid       = "UpdateServiceToAppRevision"
     actions   = ["ecs:UpdateService"]
