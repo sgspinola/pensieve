@@ -6,6 +6,8 @@
 
 **Status:** in-review: implemented on `feat/46-terraform-bootstrap-config`; waiting on the maintainer's local apply (last item) and PR merge
 
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/32
+
 - [x] Exact Terraform version pinned in `required_version` and a version file; AWS provider pinned `~>` minor; `.terraform.lock.hcl` committed with darwin-arm64 and linux-arm64 checksums
 - [x] State bucket: KMS encryption, versioning, public access blocked, bucket policy limited to the admin and plan roles; `use_lockfile` locking, no DynamoDB
 - [x] GitHub OIDC provider, and an ECR push role trusted only from `main` of `sgspinola/pensieve`, limited to push to the two repositories
