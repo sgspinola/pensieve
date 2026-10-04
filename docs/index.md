@@ -103,3 +103,5 @@ data), with file:line citations throughout.
 - **[Wiki article management](/flows/wiki-article-management)** — create,
   edit, reparent, and delete a wiki article, including the two delete
   branches (promote children vs. cascade) and cycle prevention on reparent.
+
+<!-- ticket 38 verification: docs-only change -->
