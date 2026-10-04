@@ -8,6 +8,8 @@
 
 **Completed:** on `feat/40-iam-database-connection-helper`
 
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/27
+
 - [x] With `DATABASE_URL` set, the helper yields URL-based config and behaviour is unchanged (existing tests and local dev keep working)
 - [x] Without it, the helper yields host/port/database/user config whose password is an async function calling the injected RDS token signer on every invocation
 - [x] IAM mode enables TLS with certificate verification against the bundled RDS CA bundle, and the bundle is copied into the app image
