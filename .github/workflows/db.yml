@@ -48,27 +48,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # As in ci.yml's build job: buildx from the runner's CLI, its layer
-      # cache restored on every run and saved only on pushes.
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/buildx-cache
-          key: buildx-db-${{ runner.arch }}-${{ github.sha }}
-          restore-keys: buildx-db-${{ runner.arch }}-
+      # No layer or vulnerability-DB cache: the workflow runs rarely enough
+      # that a cold build and a fresh DB download are fine.
       - name: Build
-        run: |
-          docker buildx create --driver docker-container --use
-          docker buildx build --platform linux/arm64 --file db/Dockerfile --tag pensieve-db:ci --load \
-            --cache-from "type=local,src=$RUNNER_TEMP/buildx-cache" \
-            --cache-to "type=local,dest=$RUNNER_TEMP/buildx-cache-new,mode=max" .
-          # Replace rather than merge, so the cache doesn't grow without bound.
-          rm -rf "$RUNNER_TEMP/buildx-cache"
-          mv "$RUNNER_TEMP/buildx-cache-new" "$RUNNER_TEMP/buildx-cache"
-      - if: github.event_name == 'push'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/buildx-cache
-          key: buildx-db-${{ runner.arch }}-${{ github.sha }}
+        run: docker build --platform linux/arm64 --file db/Dockerfile --tag pensieve-db:ci .
       - name: Save image
         run: |
           mkdir -p "$RUNNER_TEMP/image"
@@ -88,34 +71,11 @@ jobs:
         with:
           sarif_file: trivy-secret.sarif
           category: trivy-db-image-secrets
-      # The same daily vulnerability DB cache ci.yml's trivy job uses.
-      - name: Cache key
-        id: day
-        run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: db-cache
-        with:
-          path: ${{ runner.temp }}/trivy-cache
-          key: trivy-db-${{ steps.day.outputs.date }}
-          restore-keys: trivy-db-
-      - name: Download vulnerability DB
-        if: steps.db-cache.outputs.cache-hit != 'true'
-        run: >
-          docker run --rm -v "$RUNNER_TEMP/trivy-cache:/cache" "$TRIVY_IMAGE"
-          image --cache-dir /cache --download-db-only --no-progress
-          --db-repository public.ecr.aws/aquasecurity/trivy-db:2
-      - if: github.event_name == 'push' && steps.db-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        # ci.yml's trivy job may have saved today's key first; that's fine.
-        continue-on-error: true
-        with:
-          path: ${{ runner.temp }}/trivy-cache
-          key: trivy-db-${{ steps.day.outputs.date }}
       - name: Trivy vulnerability scan
         run: >
-          docker run --rm -v "$RUNNER_TEMP/image:/scan:ro" -v "$RUNNER_TEMP/trivy-cache:/cache"
-          -v "$PWD:/repo" "$TRIVY_IMAGE"
-          image --input /scan/pensieve-db-image.tar --cache-dir /cache --skip-db-update
+          docker run --rm -v "$RUNNER_TEMP/image:/scan:ro" -v "$PWD:/repo" "$TRIVY_IMAGE"
+          image --input /scan/pensieve-db-image.tar --no-progress
+          --db-repository public.ecr.aws/aquasecurity/trivy-db:2
           --scanners vuln --ignore-unfixed --ignorefile /repo/.trivyignore
           --exit-code 1 --format sarif --output /repo/trivy-vuln.sarif
       - name: Upload vulnerability scan SARIF
