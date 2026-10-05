@@ -1,6 +1,6 @@
 # 55: Docs: CI pipeline architecture page
 
-**What to build:** Readers of the docs site can see what protects each change and what gets published from where. A new architecture page covers both workflows (`ci.yml` and `db.yml`): their jobs (each runs on every change), the rulesets' per-job required checks, where findings go, and the `publish`/`publish-db` jobs. It's kept in sync per the repo's docs conventions, and the methodology notes record how it was produced and where graphify didn't reach. Spec: `backlog/specs/12-release-and-operations.md` (user stories 28, 30; "Documentation").
+**What to build:** Readers of the docs site can see what protects each change and what gets published from where. A new architecture page covers both workflows (`ci.yml` and `db.yml`): their jobs (`ci.yml`'s run on every change and are required by name; `db.yml`'s run only when database sources change and aren't required), where findings go, and the `publish`/`publish-db` jobs. It's kept in sync per the repo's docs conventions, and the methodology notes record how it was produced and where graphify didn't reach. Spec: `backlog/specs/12-release-and-operations.md` (user stories 28, 30; "Documentation").
 
 **Blocked by:** 45 (complete `db.yml`), 51 (publish jobs)
 

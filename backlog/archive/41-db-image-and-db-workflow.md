@@ -14,10 +14,10 @@
 - [x] DB image: distroless Node `nonroot` pinned by digest, arm64 only, contains `drizzle/`, `migrate.cjs` and the RDS CA bundle, and no Next.js or app code; hadolint-clean; Dependabot tracks its base digest
 - [x] App image no longer contains the migrator or migration SQL, only `drizzle/meta/_journal.json`
 - [x] App e2e migrates with `npm run db:migrate` instead of the image's migrator and still passes
-- [x] `db.yml` triggers on `pull_request`/`push` to `develop`/`main`, and every job runs on every trigger (no `changes` job, no path filters, no `on: paths:`)
+- [x] `db.yml` triggers on `pull_request`/`push` to `develop`/`main` (revised during review: filtered with `on: paths:` to the database sources, see spec 13)
 - [x] `db-image` job builds the DB image and runs Trivy secret and vulnerability scans as `ci.yml` does for the app (SARIF to Code Scanning, same exceptions files)
 - [x] `db-apply` job applies every migration from scratch with the built image against a `postgres:17-alpine` service
-- [x] Each `db.yml` job is added by name to the `develop` and `main` rulesets' required checks (there's no aggregate `gate` job; see spec 10)
+- [x] ~~Each `db.yml` job is added by name to the `develop` and `main` rulesets' required checks~~ (revised during review: dropped along with the path filter. A path-filtered workflow can't be a required check. They were added, then removed again)
 - [x] Spec 10's CI docs/comments and `docs/` pages describing the image or e2e flow updated
 
 **Implementation notes:**

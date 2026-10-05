@@ -12,4 +12,4 @@
 - [ ] The test asserts the app role can select, insert, update and delete in a migrated table, and is refused DDL
 - [ ] The test asserts the app role can still write a table the migrator creates *after* bootstrap
 - [ ] The test asserts the app role can read the bookkeeping table and `pensieve_meta` but not write them
-- [ ] `db-grants` job in `db.yml` runs that test on every change, and is added by name to the `develop`/`main` rulesets' required checks
+- [ ] `db-grants` job in `db.yml` runs that test (on `db.yml`'s path-filtered triggers; not a required check, see spec 13)

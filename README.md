@@ -158,15 +158,18 @@ unit (Vitest against a `postgres:17-alpine` service container), docs-build,
 trufflehog, semgrep, sbom, build (the arm64 image, secret-scanned before
 upload), trivy (the built image's vulnerability scan) and e2e (the Playwright
 suite against that built image, migrated with `npm run db:migrate`).
-`.github/workflows/db.yml` runs alongside it on the same triggers: db-image
-(builds the DB image and runs Trivy's secret and vulnerability scans on it)
-and db-apply (the image's migrator applies every migration to an empty
+`.github/workflows/db.yml` runs on the same branches, but only when a
+database source changes (`drizzle/`, `db/`, `src/db/`, `certs/`,
+`drizzle.config.ts`, `.dockerignore` or the workflow): db-image (builds the
+DB image and runs Trivy's secret and vulnerability scans on it) and db-apply
+(the image's migrator applies every migration to an empty
 `postgres:17-alpine`). See
 [Deployable image](docs/architecture/deployable-image.md#building-in-ci) and
 [Testing the app image](docs/architecture/deployable-image.md#testing-the-app-image).
-The branch rulesets require each gate in both workflows by its job name.
-Adding or renaming a job means updating the `develop` and `main` rulesets'
-required checks too.
+The branch rulesets require each `ci.yml` gate by its job name. Adding or
+renaming one means updating the `develop` and `main` rulesets' required
+checks too. `db.yml`'s jobs aren't required, since a required check whose
+workflow didn't trigger would block every app-only PR.
 On PRs into `main`, `release-source` also fails unless the head branch is
 `develop`.
 

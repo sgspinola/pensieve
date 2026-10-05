@@ -106,14 +106,14 @@ jobs:
               --config p/default --config p/typescript --config p/react \
               --config p/nextjs --config p/owasp-top-ten
           fi
-      - name: Upload SARIF
+      - name: Upload Semgrep SARIF
         if: always() && hashFiles('semgrep.sarif') != ''
         # A fork PR's token can't write security events; don't fail on that.
         continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: semgrep.sarif
-          category: semgrep
+          category: Semgrep
       - name: Summary
         if: always()
         env:
@@ -242,14 +242,14 @@ jobs:
             git file:///repo --since-commit "$SINCE" --branch "$HEAD_SHA" \
             --results=verified,unknown,unverified --fail --fail-on-scan-errors --no-update --sarif \
             > trufflehog.sarif
-      - name: Upload SARIF
+      - name: Upload TruffleHog SARIF
         if: always() && hashFiles('trufflehog.sarif') != ''
         # A fork PR's token can't write security events; don't fail on that.
         continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: trufflehog.sarif
-          category: trufflehog-repo
+          category: Secrets
       - name: Summary
         if: always()
         run: |
@@ -339,7 +339,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: trivy-secret.sarif
-          category: trivy-image-secrets
+          category: Secrets
       # Only reached when the scan passed. 1 day is the hand-off to later
       # jobs (the image scan and e2e, tickets 34 and 35); on develop pushes
       # it's the deployable artifact.
@@ -410,14 +410,14 @@ jobs:
           image --input /scan/pensieve-image.tar --cache-dir /cache --skip-db-update
           --scanners vuln --ignore-unfixed --ignorefile /repo/.trivyignore
           --exit-code 1 --format sarif --output /repo/trivy-vuln.sarif
-      - name: Upload SARIF
+      - name: Upload Trivy SARIF
         if: always() && hashFiles('trivy-vuln.sarif') != ''
         # A fork PR's token can't write security events; don't fail on that.
         continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: trivy-vuln.sarif
-          category: trivy-image-vulns
+          category: Container SCA
       - name: Summary
         if: always()
         run: |

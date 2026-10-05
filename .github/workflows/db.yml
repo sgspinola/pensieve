@@ -1,19 +1,34 @@
 # Ticket 41: the database's own CI (spec 13, "`db.yml` workflow"). It builds
 # and scans the DB image (db/Dockerfile) and proves every migration applies
-# to an empty database. Like ci.yml, every job runs on every change, and the
-# develop/main rulesets require each one by its job name, so adding or
-# renaming a job means updating both rulesets' required checks too.
+# to an empty database. Unlike ci.yml, it only triggers when a database
+# source changes (the paths below), so app-only changes don't pay for it.
+# That's also why its jobs aren't required checks in the develop/main
+# rulesets: a required check whose workflow never triggered would block the
+# PR forever. A failing run still shows on the PR; it just doesn't block the
+# merge on its own. Dependency bumps don't trigger it: ci.yml's unit job
+# runs drizzle-orm's migrator on every change anyway.
 #
 # Same baseline as ci.yml: least-privilege permissions, actions pinned to a
 # full commit SHA, checkout without persisted credentials, scanners run as
 # digest-pinned images, a timeout and a short $GITHUB_STEP_SUMMARY.
 name: DB
 
+# The migrations, the migrator and its connection helper, the CA bundle,
+# the build context's ignore file, drizzle-kit's config and this workflow.
 on:
   pull_request:
     branches: [develop, main]
+    paths: &db-sources
+      - "drizzle/**"
+      - "db/**"
+      - "src/db/**"
+      - "certs/**"
+      - "drizzle.config.ts"
+      - ".dockerignore"
+      - ".github/workflows/db.yml"
   push:
     branches: [develop, main]
+    paths: *db-sources
 
 permissions:
   contents: read
@@ -63,14 +78,14 @@ jobs:
           --scanners secret --image-config-scanners secret
           --secret-config /repo/trivy-secret.yaml
           --exit-code 1 --format sarif --output /repo/trivy-secret.sarif
-      - name: Upload secret scan SARIF
+      - name: Upload Trivy SARIF
         if: always() && hashFiles('trivy-secret.sarif') != ''
         # A fork PR's token can't write security events; don't fail on that.
         continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: trivy-secret.sarif
-          category: trivy-db-image-secrets
+          category: Secrets
       - name: Trivy vulnerability scan
         run: >
           docker run --rm -v "$RUNNER_TEMP/image:/scan:ro" -v "$PWD:/repo" "$TRIVY_IMAGE"
@@ -78,13 +93,13 @@ jobs:
           --db-repository public.ecr.aws/aquasecurity/trivy-db:2
           --scanners vuln --ignore-unfixed --ignorefile /repo/.trivyignore
           --exit-code 1 --format sarif --output /repo/trivy-vuln.sarif
-      - name: Upload vulnerability scan SARIF
+      - name: Upload Trivy SARIF
         if: always() && hashFiles('trivy-vuln.sarif') != ''
         continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
         uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: trivy-vuln.sarif
-          category: trivy-db-image-vulns
+          category: Container SCA
       # Only reached when both scans passed: the 1-day hand-off to db-apply.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
