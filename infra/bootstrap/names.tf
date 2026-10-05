@@ -29,6 +29,7 @@ locals {
   predeploy_snapshot_prefix = "pensieve-predeploy-"
 
   # Secrets Manager secret holding the Cloudflare tunnel token (ticket 49).
+  # kics-scan ignore-line (the secret's name, not its value)
   tunnel_token_secret = "pensieve/cloudflared-tunnel-token"
 
   # Derived ARNs.

@@ -1,3 +1,5 @@
+# kics-scan disable=e592a0c5-5bdb-414c-9066-5dba7cdea370
+# (KICS wants an Access Analyzer in every file; it's in access-analyzer.tf.)
 # The `deploy-db` workflow (ticket 54), from the approval-gated `prod-db`
 # Environment on `main`: snapshot the database, run the migrate task, and
 # optionally move the app to a matching revision. Deliberately absent: the

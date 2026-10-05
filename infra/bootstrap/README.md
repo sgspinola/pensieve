@@ -15,6 +15,9 @@ infrastructure depends on, once, from the maintainer's laptop:
   | `pensieve-github-deploy-app` | the `prod-app` Environment on `main` | roll the service to a new app task-definition revision |
   | `pensieve-github-deploy-db` | the `prod-db` Environment on `main` | snapshot, run the migrate task, roll the service |
 
+- an account-wide IAM Access Analyzer, which flags any of the above (or
+  anything later) that becomes reachable from outside the account
+
 The deploy roles are scoped by ARN to resources the prod config creates later
 (cluster, service, task families, task roles, log group, RDS instance). Their
 names live in `names.tf`, and prod must use exactly those, including one
@@ -47,7 +50,7 @@ The procedure for the bootstrap runbook (ticket 56).
    aws sso login
    cd infra/bootstrap
    terraform init
-   terraform plan -out bootstrap.tfplan   # review: 1 bucket, 1 KMS key, 1 OIDC provider, 4 roles
+   terraform plan -out bootstrap.tfplan   # review: 1 bucket, 1 KMS key, 1 OIDC provider, 4 roles, 1 access analyzer
    terraform apply bootstrap.tfplan
    terraform output
    ```

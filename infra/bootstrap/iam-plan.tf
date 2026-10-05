@@ -1,3 +1,5 @@
+# kics-scan disable=e592a0c5-5bdb-414c-9066-5dba7cdea370
+# (KICS wants an Access Analyzer in every file; it's in access-analyzer.tf.)
 # `terraform plan` on infrastructure PRs (ticket 47), from the `plan` GitHub
 # Environment. Read-only everywhere, plus reading the prod state. It can't
 # write the state lockfile, so CI plans with `-lock=false`.
@@ -21,12 +23,14 @@ data "aws_iam_policy_document" "plan_state" {
     resources = [aws_s3_bucket.state.arn]
   }
 
+  # kics-scan ignore-block (reading the state is this role's job)
   statement {
     sid       = "ReadStateAndLockfile"
     actions   = ["s3:GetObject"]
     resources = ["${aws_s3_bucket.state.arn}/*"]
   }
 
+  # kics-scan ignore-block (one secret, already in the state; see the header)
   statement {
     sid       = "RefreshTunnelTokenSecret"
     actions   = ["secretsmanager:GetSecretValue"]

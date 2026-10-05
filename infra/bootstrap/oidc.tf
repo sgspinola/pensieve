@@ -1,3 +1,5 @@
+# kics-scan disable=e592a0c5-5bdb-414c-9066-5dba7cdea370
+# (KICS wants an Access Analyzer in every file; it's in access-analyzer.tf.)
 # GitHub Actions' OIDC identity provider. CI holds no AWS keys: each workflow
 # job exchanges its short-lived GitHub token for one of the roles below, and
 # each role's trust policy decides which jobs may (iam-*.tf).

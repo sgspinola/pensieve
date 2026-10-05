@@ -1,3 +1,5 @@
+# kics-scan disable=e592a0c5-5bdb-414c-9066-5dba7cdea370
+# (KICS wants an Access Analyzer in every file; it's in access-analyzer.tf.)
 # Publishes the app and DB images (tickets 50 and 51) from pushes to `main`.
 # Push only: no pull-through to other repositories, no repository admin.
 resource "aws_iam_role" "ecr_push" {

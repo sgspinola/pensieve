@@ -1,3 +1,5 @@
+# kics-scan disable=e592a0c5-5bdb-414c-9066-5dba7cdea370
+# (KICS wants an Access Analyzer in every file; it's in access-analyzer.tf.)
 # The `deploy-app` workflow (ticket 52), from the approval-gated `prod-app`
 # Environment on `main`: point the service at a new app task-definition
 # revision. It can't touch the database, the migrate or bootstrap tasks, or

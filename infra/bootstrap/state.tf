@@ -1,8 +1,11 @@
+# kics-scan disable=e592a0c5-5bdb-414c-9066-5dba7cdea370
+# (KICS wants an Access Analyzer in every file; it's in access-analyzer.tf.)
 # The S3 bucket every other root config keeps its state in. Locking uses S3's
 # native lockfile (`use_lockfile = true` in the prod backend), so there's no
 # DynamoDB table. The prod state will hold the Cloudflare tunnel token, so
 # the bucket is KMS-encrypted and only the admin and plan roles can reach it.
 
+# kics-scan ignore-block (no explicit policy: the default delegates to IAM, see below)
 resource "aws_kms_key" "state" {
   description         = "Terraform state (pensieve)"
   enable_key_rotation = true
@@ -15,11 +18,15 @@ resource "aws_kms_alias" "state" {
   target_key_id = aws_kms_key.state.key_id
 }
 
+# No access logging: it needs a second bucket, and CloudTrail records changes
+# to the bucket policy and the key.
+# kics-scan ignore-block
 resource "aws_s3_bucket" "state" {
   # Bucket names are global; the account ID keeps this one unique.
   bucket = "pensieve-tfstate-${local.account_id}"
 }
 
+# kics-scan ignore-block (no MFA Delete: only the root user can enable it, via the CLI)
 resource "aws_s3_bucket_versioning" "state" {
   bucket = aws_s3_bucket.state.id
   versioning_configuration {
