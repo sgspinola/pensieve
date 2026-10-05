@@ -32,7 +32,8 @@ flowchart TB
         DrizzleMod["drizzle-orm community (5 nodes)<br/>package.json dep + a few script entry points"]
         TestMod["vitest community (15 nodes)<br/>src/test/db.ts, shared test fixtures"]
         E2EMod["e2e communities<br/>smoke.spec.ts, global-setup/teardown"]
-        OpsMod["src/ops/* (image entrypoints)<br/>migrate.ts (community: getDatabaseUrl),<br/>healthcheck.ts (isolated: reaches<br/>/api/health over HTTP, not imports)"]
+        OpsMod["src/ops/healthcheck.ts<br/>(app image HEALTHCHECK; isolated:<br/>reaches /api/health over HTTP, not imports)"]
+        DbImgMod["db/migrate.ts (DB image entrypoint;<br/>community: connection.ts)"]
     end
 
     ItemsUI --> RoutesGroup
@@ -58,10 +59,10 @@ flowchart TB
     TestMod -.->|imports for fixtures| SchemaMod
     E2EMod -.->|imports for seeding| GetDb
     E2EMod -.->|imports for seeding| AuthMod
-    OpsMod -->|"getDatabaseUrl(),<br/>drizzle migrator"| DrizzleMod
+    DbImgMod -->|"drizzle migrator"| DrizzleMod
 ```
 
-`src/ops/*` is never imported by the app. Its two files are bundled into the container image as the migration and `HEALTHCHECK` entrypoints (see [Deployable image](/architecture/deployable-image)).
+Neither entrypoint is imported by the app. `src/ops/healthcheck.ts` is bundled into the app image as its `HEALTHCHECK`, and `db/migrate.ts`, which reaches Postgres through the shared `src/db/connection.ts` helper, is bundled into the separate DB image as its migrator (see [Deployable image](/architecture/deployable-image)).
 
 ## What the community structure actually tells you
 

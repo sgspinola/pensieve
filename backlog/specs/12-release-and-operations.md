@@ -87,7 +87,7 @@ The documentation site gains pages describing the CI pipeline and the AWS deploy
 
 **Documentation** (VitePress docs site, following the existing conventions):
 - An architecture page for the CI pipeline. It covers:
-  - both workflows (`ci.yml` and `db.yml`), their jobs (each runs on every change) and the rulesets' per-job required checks
+  - both workflows (`ci.yml` and `db.yml`), their jobs (`ci.yml`'s run on every change and are required by name; `db.yml`'s run only when database sources change and aren't required)
   - where findings go, and what's published from where
 - An architecture page for the AWS deployment: the request path Cloudflare → Tunnel → `cloudflared` sidecar → app → RDS over IAM auth, plus the network layout, the app and DB images, roles and cost structure, with Mermaid diagrams.
 - Operations runbooks:

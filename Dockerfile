@@ -17,9 +17,9 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
-# The standalone server, plus the migration and healthcheck entrypoints
-# bundled into self-contained files: standalone tracing only follows what the
-# server imports, so it would leave out drizzle's migrator.
+# The standalone server, plus the healthcheck entrypoint bundled into a
+# self-contained file (it's not imported by the server, so standalone tracing
+# wouldn't include it). The migrator lives in the DB image (db/Dockerfile).
 RUN npm run build \
  && npm run build:ops \
  && mkdir -p .next/standalone/.next/cache
@@ -37,8 +37,10 @@ ENV NODE_ENV=production \
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder --chown=65532:65532 /app/.next/standalone/.next/cache ./.next/cache
-COPY --from=builder /app/drizzle ./drizzle
-COPY --from=builder /app/dist/ops/migrate.cjs /app/dist/ops/healthcheck.cjs ./
+# Ticket 41: no migration SQL or migrator, only the journal of migration
+# tags this build expects (spec 13's startup check).
+COPY --from=builder /app/drizzle/meta/_journal.json ./drizzle/meta/
+COPY --from=builder /app/dist/ops/healthcheck.cjs ./
 # Ticket 40: RDS's public CA bundle (truststore.pki.rds.amazonaws.com, global),
 # which src/db/connection.ts verifies the database's TLS certificate against
 # in IAM-auth mode.
@@ -50,6 +52,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD ["/nodejs/bin/node", "healthcheck.cjs"]
 
-# The distroless entrypoint is `node`; `docker run <image> migrate.cjs` swaps
-# in the migration entrypoint.
+# The distroless entrypoint is `node`, so this runs the server.
 CMD ["server.js"]

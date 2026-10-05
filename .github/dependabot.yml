@@ -32,10 +32,10 @@ updates:
       actions-minor-patch:
         update-types: ["minor", "patch"]
 
-  # Ticket 33: the Dockerfile's base images are pinned by tag and digest;
-  # this keeps both current.
+  # Ticket 33: the Dockerfiles' base images are pinned by tag and digest;
+  # this keeps them current, in the app image and the DB image (ticket 41).
   - package-ecosystem: "docker"
-    directory: "/"
+    directories: ["/", "/db"]
     schedule:
       interval: "weekly"
     cooldown:

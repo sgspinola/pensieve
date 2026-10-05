@@ -1,0 +1,180 @@
+# Ticket 41: the database's own CI (spec 13, "`db.yml` workflow"). It builds
+# and scans the DB image (db/Dockerfile) and proves every migration applies
+# to an empty database. Unlike ci.yml, it only triggers when a database
+# source changes (the paths below), so app-only changes don't pay for it.
+# That's also why its jobs aren't required checks in the develop/main
+# rulesets: a required check whose workflow never triggered would block the
+# PR forever. A failing run still shows on the PR; it just doesn't block the
+# merge on its own. Dependency bumps don't trigger it: ci.yml's unit job
+# runs drizzle-orm's migrator on every change anyway.
+#
+# Same baseline as ci.yml: least-privilege permissions, actions pinned to a
+# full commit SHA, checkout without persisted credentials, scanners run as
+# digest-pinned images, a timeout and a short $GITHUB_STEP_SUMMARY.
+name: DB
+
+# The migrations, the migrator and its connection helper, the CA bundle,
+# the build context's ignore file, drizzle-kit's config and this workflow.
+on:
+  pull_request:
+    branches: [develop, main]
+    paths: &db-sources
+      - "drizzle/**"
+      - "db/**"
+      - "src/db/**"
+      - "certs/**"
+      - "drizzle.config.ts"
+      - ".dockerignore"
+      - ".github/workflows/db.yml"
+  push:
+    branches: [develop, main]
+    paths: *db-sources
+
+permissions:
+  contents: read
+
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+
+# One run per workflow + ref. Superseded PR runs are cancelled; pushes to
+# develop/main always run to completion.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # The arm64 DB image, built natively on an arm64 runner, then scanned as
+  # ci.yml's build and trivy jobs scan the app image: embedded secrets (every
+  # layer plus the image config, with trivy-secret.yaml's custom rule), then
+  # fixable vulnerabilities with .trivyignore's exceptions. Any finding fails
+  # the job before upload-artifact; SARIF goes to Code Scanning either way.
+  # The migrator is one esbuild bundle, which Trivy can't see into, so the
+  # vulnerability scan covers the distroless base's Debian packages. The npm
+  # packages bundled into it (drizzle-orm, postgres, the RDS signer) also ship
+  # in the app image, whose scan in ci.yml's trivy job does see them.
+  db-image:
+    name: db-image
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No layer or vulnerability-DB cache: the workflow runs rarely enough
+      # that a cold build and a fresh DB download are fine.
+      - name: Build
+        run: docker build --platform linux/arm64 --file db/Dockerfile --tag pensieve-db:ci .
+      - name: Save image
+        run: |
+          mkdir -p "$RUNNER_TEMP/image"
+          docker save pensieve-db:ci -o "$RUNNER_TEMP/image/pensieve-db-image.tar"
+      - name: Trivy secret scan
+        run: >
+          docker run --rm -v "$RUNNER_TEMP/image:/scan:ro" -v "$PWD:/repo" "$TRIVY_IMAGE"
+          image --input /scan/pensieve-db-image.tar
+          --scanners secret --image-config-scanners secret
+          --secret-config /repo/trivy-secret.yaml
+          --exit-code 1 --format sarif --output /repo/trivy-secret.sarif
+      - name: Upload Trivy SARIF
+        if: always() && hashFiles('trivy-secret.sarif') != ''
+        # A fork PR's token can't write security events; don't fail on that.
+        continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy-secret.sarif
+          category: Secrets
+      - name: Trivy vulnerability scan
+        run: >
+          docker run --rm -v "$RUNNER_TEMP/image:/scan:ro" -v "$PWD:/repo" "$TRIVY_IMAGE"
+          image --input /scan/pensieve-db-image.tar --no-progress
+          --db-repository public.ecr.aws/aquasecurity/trivy-db:2
+          --scanners vuln --ignore-unfixed --ignorefile /repo/.trivyignore
+          --exit-code 1 --format sarif --output /repo/trivy-vuln.sarif
+      - name: Upload Trivy SARIF
+        if: always() && hashFiles('trivy-vuln.sarif') != ''
+        continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: trivy-vuln.sarif
+          category: Container SCA
+      # Only reached when both scans passed: the 1-day hand-off to db-apply.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pensieve-db-image
+          path: ${{ runner.temp }}/image/pensieve-db-image.tar
+          retention-days: 1
+          if-no-files-found: error
+      - name: Summary
+        if: always()
+        run: |
+          count() { [ -s "$1" ] && jq '[.runs[].results[]] | length' "$1" || echo "no SARIF"; }
+          secrets=$(count trivy-secret.sarif)
+          vulns=$(count trivy-vuln.sarif)
+          icon=$([ "$secrets" = 0 ] && [ "$vulns" = 0 ] && echo ":white_check_mark:" || echo ":x:")
+          echo "### db-image $icon linux/arm64 DB image; Trivy secret findings: $secrets, fixable vulnerabilities: $vulns" >> "$GITHUB_STEP_SUMMARY"
+
+  # Every migration applied from scratch by the built image's migrator, the
+  # way production runs it, against a fresh Postgres. Drizzle's bookkeeping
+  # table must then hold one row per journal entry.
+  db-apply:
+    name: db-apply
+    needs: db-image
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    services:
+      postgres:
+        # Multi-arch index digest; bump tag and digest together by hand
+        # (Dependabot doesn't read images in workflow files).
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: pensieve
+          POSTGRES_PASSWORD: pensieve
+          POSTGRES_DB: pensieve
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pensieve -d pensieve"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      # A fresh throwaway service container per run, not a secret.
+      DATABASE_URL: postgres://pensieve:pensieve@localhost:5432/pensieve
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pensieve-db-image
+          path: ${{ runner.temp }}/image
+      - name: Load image
+        run: docker load -i "$RUNNER_TEMP/image/pensieve-db-image.tar"
+      - name: Migrate (DB image)
+        run: docker run --rm --network host -e DATABASE_URL pensieve-db:ci
+      - name: Check every migration was recorded
+        id: check
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          expected=$(jq '.entries | length' drizzle/meta/_journal.json)
+          applied=$(docker exec "$POSTGRES_CONTAINER" \
+            psql -U pensieve -d pensieve -tAc 'select count(*) from drizzle.__drizzle_migrations')
+          echo "expected=$expected" >> "$GITHUB_OUTPUT"
+          echo "applied=$applied" >> "$GITHUB_OUTPUT"
+          if [ "$applied" != "$expected" ]; then
+            echo "::error::$applied migration(s) recorded, but the journal lists $expected"
+            exit 1
+          fi
+      - name: Summary
+        if: always()
+        env:
+          OUTCOME: ${{ job.status }}
+          APPLIED: ${{ steps.check.outputs.applied || '?' }}
+          EXPECTED: ${{ steps.check.outputs.expected || '?' }}
+        run: |
+          icon=$([ "$OUTCOME" = success ] && echo ":white_check_mark:" || echo ":x:")
+          echo "### db-apply $icon $APPLIED of $EXPECTED migration(s) applied to an empty database by the DB image" >> "$GITHUB_STEP_SUMMARY"

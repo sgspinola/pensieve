@@ -4,13 +4,13 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { connect } from "@/db/connection";
 
 /**
- * Ticket 29: the container image's migration entrypoint
- * (`docker run <image> migrate.cjs`). Uses drizzle-orm's built-in migrator
- * rather than drizzle-kit, so the image needs no dev tooling — `npm run
- * build:ops` bundles this file with esbuild, since Next's standalone tracing
- * doesn't include the migrator. Applies the SQL under `./drizzle` (relative to the
- * working directory: `/app` in the image, the repo root locally) and exits 0
- * on success, non-zero on any failure, including an unreachable database.
+ * Ticket 29, moved to the DB image in ticket 41: the DB image's migration
+ * entrypoint (its default command, `docker run <db-image>`). Uses
+ * drizzle-orm's built-in migrator rather than drizzle-kit, so the image needs
+ * no dev tooling — `npm run build:db` bundles this file with esbuild. Applies
+ * the SQL under `./drizzle` (relative to the working directory: `/app` in the
+ * image, the repo root locally) and exits 0 on success, non-zero on any
+ * failure, including an unreachable database.
  */
 
 // So an unreachable DB fails fast instead of postgres.js's default 30s.

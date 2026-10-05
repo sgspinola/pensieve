@@ -108,15 +108,18 @@ npm run db:migrate    # applies pending migrations to the dev database
 
 ## Production image
 
-The deployable artifact is an arm64 container image built from Next's
-standalone output on distroless Node (no shell, runs as non-root). See
+The deployable artifacts are two arm64 container images on distroless Node
+(no shell, runs as non-root): the app image, built from Next's standalone
+output by the root `Dockerfile`, and the DB image, which holds the migrations
+and their migrator, built by `db/Dockerfile`. See
 [Deployable image](docs/architecture/deployable-image.md) for what's inside.
 `.dockerignore` keeps `.env*` out of the build, so a local `.env` never ends
 up in the image.
 
 ```bash
-# Build
+# Build the app image and the DB image (both from the repo root)
 docker build --platform linux/arm64 -t pensieve .
+docker build --platform linux/arm64 -f db/Dockerfile -t pensieve-db .
 
 # A network the app, migrations and Postgres share (any reachable Postgres works)
 docker network create pensieve-net
@@ -127,9 +130,9 @@ docker run -d --name pensieve-db --network pensieve-net -p 5433:5432 \
 # Throwaway local credentials, passed through to both containers below
 export DATABASE_URL=postgres://pensieve:pensieve@pensieve-db:5432/pensieve # trufflehog:ignore
 
-# Migrate: drizzle-orm's migrator, bundled in the image; exits non-zero on failure
-docker run --rm --network pensieve-net -e DATABASE_URL \
-  pensieve migrate.cjs
+# Migrate: the DB image's default command (drizzle-orm's migrator); exits
+# non-zero on failure. `npm run db:migrate` against the same database works too.
+docker run --rm --network pensieve-net -e DATABASE_URL pensieve-db
 
 # Run: its HEALTHCHECK polls /api/health (`docker ps` shows healthy/unhealthy)
 docker run -d --name pensieve-app --network pensieve-net -p 3200:3000 \
@@ -154,11 +157,19 @@ and every push to them: lint (ESLint, actionlint and hadolint), typecheck,
 unit (Vitest against a `postgres:17-alpine` service container), docs-build,
 trufflehog, semgrep, sbom, build (the arm64 image, secret-scanned before
 upload), trivy (the built image's vulnerability scan) and e2e (the Playwright
-suite against that built image); see
+suite against that built image, migrated with `npm run db:migrate`).
+`.github/workflows/db.yml` runs on the same branches, but only when a
+database source changes (`drizzle/`, `db/`, `src/db/`, `certs/`,
+`drizzle.config.ts`, `.dockerignore` or the workflow): db-image (builds the
+DB image and runs Trivy's secret and vulnerability scans on it) and db-apply
+(the image's migrator applies every migration to an empty
+`postgres:17-alpine`). See
 [Deployable image](docs/architecture/deployable-image.md#building-in-ci) and
-[Testing the image](docs/architecture/deployable-image.md#testing-the-image).
-The branch rulesets require each gate by its job name. Adding or renaming a
-job means updating the `develop` and `main` rulesets' required checks too.
+[Testing the app image](docs/architecture/deployable-image.md#testing-the-app-image).
+The branch rulesets require each `ci.yml` gate by its job name. Adding or
+renaming one means updating the `develop` and `main` rulesets' required
+checks too. `db.yml`'s jobs aren't required, since a required check whose
+workflow didn't trigger would block every app-only PR.
 On PRs into `main`, `release-source` also fails unless the head branch is
 `develop`.
 
