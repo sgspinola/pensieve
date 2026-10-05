@@ -50,10 +50,11 @@ jobs:
           rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
           -color
       - name: hadolint
+        # The app image and the DB image (ticket 41).
         run: >
-          docker run --rm -i
+          docker run --rm -v "$PWD:/repo" --workdir /repo
           hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d
-          < Dockerfile
+          hadolint Dockerfile db/Dockerfile
       - name: Summary
         run: |
           echo "### lint :white_check_mark: ESLint, actionlint and hadolint passed" >> "$GITHUB_STEP_SUMMARY"
@@ -435,11 +436,12 @@ jobs:
           fi
 
   # Ticket 35: the Playwright suite against the built image itself, so a
-  # broken standalone output, Dockerfile, migration entrypoint or hydration
-  # fails here rather than in production. Every container shares the host
-  # network, so the browser reaches the app at http://localhost: the
-  # production session cookie is `Secure`, which Chrome only accepts over
-  # plain HTTP on localhost. That's also why Playwright runs from its official
+  # broken standalone output, Dockerfile or hydration fails here rather than
+  # in production. The app image has no migrator (ticket 41), so the database
+  # is migrated with drizzle-kit, as in local development. Every container
+  # shares the host network, so the browser reaches the app at
+  # http://localhost: the production session cookie is `Secure`, which Chrome
+  # only accepts over plain HTTP on localhost. That's also why Playwright runs from its official
   # image via `docker run` rather than as the job container: a job container
   # has no Docker CLI to load and start the app, nor the app on localhost.
   e2e:
@@ -482,8 +484,8 @@ jobs:
           path: ${{ runner.temp }}/image
       - name: Load image
         run: docker load -i "$RUNNER_TEMP/image/pensieve-image.tar"
-      - name: Migrate (image entrypoint)
-        run: docker run --rm --network host -e DATABASE_URL pensieve:ci migrate.cjs
+      - name: Migrate (drizzle-kit)
+        run: npm run db:migrate
       - name: Start app
         run: |
           docker run -d --name app --network host -e DATABASE_URL pensieve:ci
