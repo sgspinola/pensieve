@@ -4,11 +4,12 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    // Ticket 42: db/ holds the DB image's sources, tested here too.
+    include: ["src/**/*.test.ts", "db/**/*.test.ts"],
     setupFiles: ["dotenv/config"],
     coverage: {
       provider: "v8",
-      include: ["src/**"],
+      include: ["src/**", "db/**"],
     },
   },
   resolve: {

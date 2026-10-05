@@ -10,7 +10,7 @@
     "dev": "next dev",
     "build": "next build",
     "build:ops": "esbuild src/ops/healthcheck.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist/ops --out-extension:.js=.cjs",
-    "build:db": "esbuild db/migrate.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist/db --out-extension:.js=.cjs",
+    "build:db": "esbuild db/migrate.ts db/bootstrap.ts --bundle --platform=node --target=node24 --format=cjs --outdir=dist/db --out-extension:.js=.cjs",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
