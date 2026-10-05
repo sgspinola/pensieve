@@ -20,6 +20,10 @@ export type TestDatabase = PostgresJsDatabase<typeof schema>;
  * the wrong (shared) `public.users` table. A fresh database's own `public`
  * schema is exactly what unqualified migration SQL targets, so this sidesteps
  * that mismatch entirely.
+ *
+ * The one place besides src/db/connection.ts that opens connections itself:
+ * it needs a superuser `DATABASE_URL` it can rewrite to point at each
+ * throwaway database, which tests always have (they never use IAM auth).
  */
 export async function createTestDb(): Promise<{
   db: TestDatabase;
