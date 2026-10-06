@@ -38,6 +38,9 @@ infrastructure depends on, once, from the maintainer's laptop:
   - the Athena workgroup `pensieve` and Glue database `pensieve_logs` with a
     `cloudtrail` table. Partition projection over `region` and `day`, so
     there are no partitions to add
+- the account's IAM password policy: at least 14 characters, none of the last
+  24 reused, no forced expiry (NIST SP 800-63B). It applies at each user's
+  next password change
 
 The deploy roles are scoped by ARN to resources the prod config creates later
 (cluster, service, task families, task roles, log group, RDS instance). Their
@@ -57,8 +60,9 @@ The procedure for the bootstrap runbook (ticket 56).
 
 1. **Prerequisites:** an IAM user named `pensieve-admin` with
    `AdministratorAccess`, signed in with `aws login --profile pensieve-admin`
-   (short-lived console credentials, no access keys). Never root access keys.
-   If the user has another name, pass `-var admin_user_name=<name>`: the state
+   (short-lived console credentials, no access keys) and an MFA device
+   (passkey or security key, otherwise a TOTP app). Never root access keys.
+   `pensieve-auditor`, if you keep one, needs MFA too. If the user has another name, pass `-var admin_user_name=<name>`: the state
    bucket policy denies every principal except that user and the plan role,
    and the log bucket policy every principal except that user, so a wrong
    name locks everyone but the account root out of the state and the logs.
@@ -79,11 +83,12 @@ The procedure for the bootstrap runbook (ticket 56).
    ```
 
    The plan should show 2 buckets (state and logs), 1 KMS key, 1 OIDC
-   provider, 4 roles, 1 access analyzer, 1 trail, 1 Athena workgroup and 1
-   Glue database and table: `Plan: 30 to add` from scratch. On a bootstrap
-   applied before ticket 58, it's `Plan: 11 to add, 0 to change, 0 to
-   destroy`: the log bucket and its 6 settings resources, the trail, the
-   workgroup, the database and the table.
+   provider, 4 roles, 1 access analyzer, 1 trail, 1 Athena workgroup, 1
+   Glue database and table and 1 password policy: `Plan: 31 to add` from
+   scratch. On a bootstrap applied before ticket 58, it's `Plan: 12 to add,
+   1 to change, 0 to destroy`: the log bucket and its 6 settings resources,
+   the trail, the workgroup, the database, the table and the password
+   policy, plus the state bucket policy gaining the auditor.
 
 4. **Hand the outputs on** (none is a secret): the bucket name goes into the
    prod config's backend block, and each role ARN into the GitHub variable its
