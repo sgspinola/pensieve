@@ -75,7 +75,10 @@ own branches, inside the `plan` GitHub Environment. Set it up once, by hand:
    Read, and Zone › Zone, DNS and Zone Settings › Read, limited to this
    account and the `pensieve.fyi` zone. No IP filter (GitHub's runners have
    no fixed addresses). `gh secret set CLOUDFLARE_API_TOKEN --env plan` asks
-   for the value, so it stays out of your shell history.
+   for the value, so it stays out of your shell history. If you give the token a
+   TTL, check its start date: until then, and after its end date, Cloudflare
+   answers every call with `9109 Invalid access token`, even though the
+   dashboard and `tokens/verify` call it active.
 
 The plan's text goes only to the job's run summary. No plan file is kept and
 `TF_LOG` is never set, so state values can't leak into this public
