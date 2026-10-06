@@ -34,20 +34,20 @@ anyway.
 
 The procedure for the bootstrap runbook (ticket 56).
 
-1. **Prerequisites:** an IAM Identity Center user with the
-   `AdministratorAccess` permission set on the account, and the AWS CLI
-   configured for it (`aws configure sso`). Never root access keys.
-   If the permission set has another name, pass
-   `-var admin_permission_set_name=<name>`: the state bucket policy denies
-   every principal except that permission set's role and the plan role, so a
-   wrong name locks everyone but the account root out of the state.
+1. **Prerequisites:** an IAM user named `pensieve-admin` with
+   `AdministratorAccess`, signed in with `aws login --profile pensieve-admin`
+   (short-lived console credentials, no access keys). Never root access keys.
+   If the user has another name, pass `-var admin_user_name=<name>`: the state
+   bucket policy denies every principal except that user and the plan role,
+   so a wrong name locks everyone but the account root out of the state.
 2. **Terraform:** exactly the version in `infra/.terraform-version`
    (`brew install tfenv && tfenv install`, or the `hashicorp/terraform:<version>`
    Docker image).
 3. **Apply:**
 
    ```sh
-   aws sso login
+   aws login --profile pensieve-admin
+   export AWS_PROFILE=pensieve-admin
    cd infra/bootstrap
    terraform init
    terraform plan -out bootstrap.tfplan   # review: 1 bucket, 1 KMS key, 1 OIDC provider, 4 roles, 1 access analyzer

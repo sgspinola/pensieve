@@ -61,10 +61,7 @@ resource "aws_s3_bucket_ownership_controls" "state" {
 }
 
 locals {
-  # Identity Center roles live under aws-reserved/sso.amazonaws.com/, with
-  # or without a region segment depending on the account, and end in a
-  # random suffix, hence the wildcards.
-  admin_role_arn_pattern = "arn:aws:iam::${local.account_id}:role/aws-reserved/sso.amazonaws.com/*AWSReservedSSO_${var.admin_permission_set_name}_*"
+  admin_user_arn = "arn:aws:iam::${local.account_id}:user/${var.admin_user_name}"
 }
 
 data "aws_iam_policy_document" "state_bucket" {
@@ -80,7 +77,7 @@ data "aws_iam_policy_document" "state_bucket" {
     condition {
       test     = "ArnNotLike"
       variable = "aws:PrincipalArn"
-      values   = [local.admin_role_arn_pattern, aws_iam_role.plan.arn]
+      values   = [local.admin_user_arn, aws_iam_role.plan.arn]
     }
   }
 
