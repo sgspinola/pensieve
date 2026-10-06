@@ -5,9 +5,14 @@
 # The db-bootstrap family and its roles (pensieve-db-bootstrap*) are
 # deliberately absent: no CI role may run or pass them.
 locals {
-  region      = "eu-north-1"
-  account_id  = data.aws_caller_identity.current.account_id
-  github_repo = "sgspinola/pensieve"
+  region     = "eu-north-1"
+  account_id = data.aws_caller_identity.current.account_id
+  # The repository uses GitHub's immutable OIDC subjects, so every token's
+  # `sub` starts with owner and repository IDs, not names (ticket 47: STS
+  # rejected the name form). A rename or a re-created repository of the same
+  # name therefore can't assume these roles. Check the prefix with
+  # `gh api repos/sgspinola/pensieve/actions/oidc/customization/sub`.
+  github_oidc_subject = "repo:sgspinola@63927071/pensieve@1398837700"
 
   ecr_repositories = ["pensieve", "pensieve-db"]
 

@@ -20,10 +20,10 @@ locals {
 # an Environment job's `sub` names only the Environment, not the ref.
 data "aws_iam_policy_document" "github_trust" {
   for_each = {
-    ecr_push   = { sub = "repo:${local.github_repo}:ref:refs/heads/main", ref = null }
-    plan       = { sub = "repo:${local.github_repo}:environment:plan", ref = null }
-    deploy_app = { sub = "repo:${local.github_repo}:environment:prod-app", ref = "refs/heads/main" }
-    deploy_db  = { sub = "repo:${local.github_repo}:environment:prod-db", ref = "refs/heads/main" }
+    ecr_push   = { sub = "${local.github_oidc_subject}:ref:refs/heads/main", ref = null }
+    plan       = { sub = "${local.github_oidc_subject}:environment:plan", ref = null }
+    deploy_app = { sub = "${local.github_oidc_subject}:environment:prod-app", ref = "refs/heads/main" }
+    deploy_db  = { sub = "${local.github_oidc_subject}:environment:prod-db", ref = "refs/heads/main" }
   }
 
   statement {
