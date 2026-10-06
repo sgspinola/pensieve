@@ -24,7 +24,7 @@
     "docs:preview": "vitepress preview docs"
   },
   "dependencies": {
-    "@aws-sdk/rds-signer": "3.1141.0",
+    "@aws-sdk/rds-signer": "3.1142.0",
     "@logtape/cloudwatch-logs": "2.3.9",
     "@logtape/file": "2.3.9",
     "@logtape/logtape": "2.3.9",
