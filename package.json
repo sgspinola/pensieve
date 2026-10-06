@@ -57,7 +57,7 @@
     "drizzle-kit": "0.31.11",
     "esbuild": "0.28.2",
     "eslint": "10.11.0",
-    "eslint-config-next": "16.3.6",
+    "eslint-config-next": "16.3.7",
     "fast-check": "4.10.2",
     "gray-matter": "4.0.3",
     "mermaid": "11.17.2",
