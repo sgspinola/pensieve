@@ -33,9 +33,9 @@ GRANT rds_iam TO pensieve_migrator, pensieve_app;
 -- default privileges on what it will create.
 GRANT pensieve_migrator TO CURRENT_USER;
 
--- drizzle-orm's migrator runs `CREATE SCHEMA IF NOT EXISTS drizzle`, which
--- Postgres refuses without CREATE on the database even though the schema
--- below already exists.
+-- The migrator runs `CREATE SCHEMA IF NOT EXISTS` for drizzle and
+-- pensieve_meta, which Postgres refuses without CREATE on the database even
+-- though both schemas below already exist.
 DO $$
 BEGIN
   EXECUTE format('GRANT CREATE ON DATABASE %I TO pensieve_migrator', current_database());

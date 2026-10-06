@@ -106,6 +106,30 @@ npm run db:generate   # generates a new migration from the schema diff
 npm run db:migrate    # applies pending migrations to the dev database
 ```
 
+### Additive or breaking?
+
+Every migration is either **additive** (the app version already running
+keeps working on the new schema) or **breaking** (it doesn't). An additive
+migration deploys on its own. A breaking one deploys only in a maintenance
+window together with the app version that expects it.
+
+Mark a breaking migration by hand, after `npm run db:generate`, by making
+`-- pensieve:breaking` the very first line of its SQL file. The marker is
+visible in the PR diff, and that's the review point: no linter checks it.
+
+| Breaking | Additive |
+| --- | --- |
+| Dropping or renaming a table or column | A new table |
+| Changing a column's type | A new nullable column, or one with a default |
+| `NOT NULL` on a column without a default | A new index |
+| A new constraint existing rows, or the running app, could violate | |
+
+The DB image's migrator refuses a batch containing a pending breaking
+migration, applying none of it, unless `ALLOW_BREAKING=true`. The
+`deploy-db` workflow (ticket 54) will set that only when it's also given
+the new app version.
+Local `npm run db:migrate` (drizzle-kit) ignores the marker.
+
 ## Production image
 
 The deployable artifacts are two arm64 container images on distroless Node
