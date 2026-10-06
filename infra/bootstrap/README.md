@@ -69,9 +69,13 @@ own branches, inside the `plan` GitHub Environment. Set it up once, by hand:
    is read-only.
 2. Add the Environment variable `PLAN_ROLE_ARN`: `terraform output role_arns`'
    `plan` value.
-3. Add the Environment secret `CLOUDFLARE_API_TOKEN`: a Cloudflare API token
-   with only Zone Read and Cloudflare Tunnel Read, scoped to `pensieve.fyi`
-   and the account.
+3. Add the Environment secret `CLOUDFLARE_API_TOKEN`: a custom Cloudflare API
+   token with read-only permissions for everything the prod config manages
+   (ticket 49), so a refresh can read it all: Account › Cloudflare Tunnel ›
+   Read, and Zone › Zone, DNS and Zone Settings › Read, limited to this
+   account and the `pensieve.fyi` zone. No IP filter (GitHub's runners have
+   no fixed addresses). `gh secret set CLOUDFLARE_API_TOKEN --env plan` asks
+   for the value, so it stays out of your shell history.
 
 The plan's text goes only to the job's run summary. No plan file is kept and
 `TF_LOG` is never set, so state values can't leak into this public
