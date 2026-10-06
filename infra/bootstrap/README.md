@@ -59,6 +59,32 @@ The procedure for the bootstrap runbook (ticket 56).
    prod config's backend block, and each role ARN into the GitHub variable its
    workflow reads (tickets 47, 50–52, 54).
 
+## CI plan
+
+CI's `iac` job (ticket 47) plans the prod config on PRs from this repository's
+own branches, inside the `plan` GitHub Environment. Set it up once, by hand:
+
+1. Create the `plan` Environment (Settings → Environments). No reviewers or
+   branch rule: forks and Dependabot never enter it, and the role it unlocks
+   is read-only.
+2. Add the Environment variable `PLAN_ROLE_ARN`: `terraform output role_arns`'
+   `plan` value.
+3. Add the Environment secret `CLOUDFLARE_API_TOKEN`: a custom Cloudflare API
+   token with read-only permissions for everything the prod config manages
+   (ticket 49), so a refresh can read it all: Account › Cloudflare Tunnel ›
+   Read, and Zone › Zone, DNS and Zone Settings › Read, limited to this
+   account and the `pensieve.fyi` zone. No IP filter (GitHub's runners have
+   no fixed addresses). `gh secret set CLOUDFLARE_API_TOKEN --env plan` asks
+   for the value, so it stays out of your shell history. If you give the token a
+   TTL, check its start date: until then, and after its end date, Cloudflare
+   answers every call with `9109 Invalid access token`, even though the
+   dashboard and `tokens/verify` call it active.
+
+The plan's text goes only to the job's run summary. No plan file is kept and
+`TF_LOG` is never set, so state values can't leak into this public
+repository's logs or artifacts beyond what the plan itself prints (Terraform
+masks sensitive values there).
+
 ## Changing it
 
 Edit, `terraform plan`, review, `terraform apply`, all from the laptop as

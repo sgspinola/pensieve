@@ -180,8 +180,11 @@ npm run test:e2e
 and every push to them: lint (ESLint, actionlint and hadolint), typecheck,
 unit (Vitest against a `postgres:17-alpine` service container), docs-build,
 trufflehog, semgrep, sbom, build (the arm64 image, secret-scanned before
-upload), trivy (the built image's vulnerability scan) and e2e (the Playwright
-suite against that built image, migrated with `npm run db:migrate`).
+upload), trivy (the built image's vulnerability scan), e2e (the Playwright
+suite against that built image, migrated with `npm run db:migrate`) and iac
+(`terraform fmt`, `validate` and tflint over every config in `infra/`, plus a
+read-only plan of prod on PRs from this repository's own branches; see
+[infra/bootstrap/README.md](infra/bootstrap/README.md#ci-plan)).
 `.github/workflows/db.yml` runs on the same branches, but only when a
 database source changes (`drizzle/`, `db/`, `src/db/`, `certs/`,
 `drizzle.config.ts`, `.dockerignore` or the workflow): db-image (builds the
