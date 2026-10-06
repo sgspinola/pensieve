@@ -30,6 +30,18 @@ locals {
 
   migrate_log_group = "/ecs/pensieve-migrate"
 
+  # Ticket 58: the log bucket (log-bucket.tf). Prod delivers VPC flow logs
+  # and Resolver query logs to it (ticket 59), under these prefixes; the
+  # bucket policy only lets log delivery write there.
+  log_bucket = "pensieve-logs-${local.account_id}"
+  log_prefixes = {
+    cloudtrail     = "cloudtrail"
+    vpc_flow       = "vpc-flow"
+    resolver       = "resolver"
+    athena_results = "athena-results"
+  }
+  trail_name = "pensieve"
+
   rds_instance              = "pensieve"
   predeploy_snapshot_prefix = "pensieve-predeploy-"
 
@@ -51,4 +63,7 @@ locals {
   tunnel_token_secret_arn = "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:${local.tunnel_token_secret}-*"
   migrate_log_arn         = "arn:aws:logs:${local.region}:${local.account_id}:log-group:${local.migrate_log_group}:*"
   role_arns               = { for r in concat(local.app_task_roles, local.migrate_task_roles) : r => "arn:aws:iam::${local.account_id}:role/${r}" }
+  # Built, not read from the trail: the bucket policy needs it before the
+  # trail exists (CloudTrail checks the policy on create).
+  trail_arn = "arn:aws:cloudtrail:${local.region}:${local.account_id}:trail/${local.trail_name}"
 }

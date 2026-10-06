@@ -14,3 +14,13 @@ output "role_arns" {
     deploy_db  = aws_iam_role.deploy_db.arn
   }
 }
+
+output "log_bucket" {
+  description = "Log bucket name, for prod's VPC flow log and Resolver query log destinations (ticket 59)."
+  value       = aws_s3_bucket.logs.bucket
+}
+
+output "athena_workgroup" {
+  description = "Athena workgroup to query the logs in (database pensieve_logs)."
+  value       = aws_athena_workgroup.logs.name
+}
