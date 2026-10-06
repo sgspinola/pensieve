@@ -8,7 +8,7 @@
 
 **Completed:** on `feat/46-terraform-patch-range` (implementation on `feat/46-terraform-bootstrap-config`)
 
-**Pull Request:** https://github.com/sgspinola/pensieve/pull/32
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/32 (implementation), https://github.com/sgspinola/pensieve/pull/45 (admin-principal fix, completion)
 
 - [x] Terraform pinned to a minor (`~> 1.16.0`, any patch) in `required_version`, exact version in a version file for CI; AWS provider pinned `~>` minor; `.terraform.lock.hcl` committed with darwin-arm64 and linux-arm64 checksums
 - [x] State bucket: KMS encryption, versioning, public access blocked, bucket policy limited to the admin IAM user and the plan role; `use_lockfile` locking, no DynamoDB
