@@ -5,8 +5,9 @@
 # Athena. Investigation only: no CloudWatch Logs, metric filters or SNS
 # (spec 11 excludes alarms).
 
+# Semgrep's CMK finding is suppressed on the resource line, for the SSE-S3 reason below.
 # kics-scan ignore-block (SSE-S3 rather than KMS, and no CloudWatch Logs or SNS: see log-bucket.tf and the header)
-resource "aws_cloudtrail" "account" {
+resource "aws_cloudtrail" "account" { # nosemgrep: terraform.aws.security.aws-cloudtrail-encrypted-with-cmk.aws-cloudtrail-encrypted-with-cmk
   name                          = local.trail_name
   s3_bucket_name                = aws_s3_bucket.logs.id
   s3_key_prefix                 = local.log_prefixes.cloudtrail
