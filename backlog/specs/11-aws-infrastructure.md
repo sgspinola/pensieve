@@ -95,7 +95,7 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 **Terraform layout and tooling:**
 - Two root configurations: **bootstrap** (local state, applied once from the maintainer's laptop) and **prod** (S3 backend).
 - Resources are hand-written and grouped one file per concern (network, database, compute, registry, tunnel/DNS, IAM, observability).
-- An exact Terraform 1.x version is pinned in both `required_version` and a version file read by CI's setup action. The AWS and Cloudflare providers are pinned to `~>` minor versions. The `.terraform.lock.hcl` file is committed with checksums for darwin-arm64 and linux-arm64. The tflint AWS ruleset plugin is pinned.
+- An exact Terraform 1.x version is pinned in both `required_version` and a version file read by CI's setup action. (Revised during ticket 47: the repository allows only GitHub-owned actions, so CI runs Terraform and tflint as digest-pinned images, and a step fails if the Terraform image's tag differs from `infra/.terraform-version`.) The AWS and Cloudflare providers are pinned to `~>` minor versions. The `.terraform.lock.hcl` file is committed with checksums for darwin-arm64 and linux-arm64. The tflint AWS ruleset plugin is pinned.
 - Terraform, not OpenTofu.
 
 **Bootstrap config:**
@@ -167,6 +167,7 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 - `terraform fmt -check`, `validate` (initialised without a backend), and tflint with the AWS plugin.
 - On `pull_request` from same-repository branches only, `terraform plan` runs in the `plan` GitHub Environment. It authenticates to AWS via OIDC as the plan role, and to Cloudflare with a read-only (Zone and Tunnel read) API token stored as an environment secret.
 - The plan's text output goes to the run summary. No plan file is written as an artifact, and `TF_LOG` is never set.
+- (Revised during ticket 47:) Dependabot's runs plan nothing and enter no Environment, since GitHub withholds Environment secrets from them; a maintainer's push to a Dependabot branch plans as usual. Plan only runs once `infra/prod` exists (ticket 48).
 
 **Manual prerequisites:**
 - an admin IAM user (`pensieve-admin`, `AdministratorAccess`) for `aws login`

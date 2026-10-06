@@ -222,6 +222,12 @@ jobs:
   # never hold either credential. Every job runs on every change, so pushes
   # run the checks too, with no Environment.
   #
+  # Dependabot is excluded by `github.actor`, the same test GitHub uses to
+  # withhold secrets: its runs (and their re-runs) get no Environment secret,
+  # but a maintainer's push to its branch plans like any other PR. The
+  # condition appears twice, in `environment:` and PLAN_ELIGIBLE, because
+  # `environment:` can't read `env`; keep the two identical.
+  #
   # Nothing here may leak state values into this public repository: the plan
   # text goes only to the run summary (where Terraform masks sensitive
   # values), no plan file is written, and Terraform runs in containers that
@@ -234,12 +240,17 @@ jobs:
     environment: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') && 'plan' || '' }}
     permissions:
       contents: read
+      # Permissions can't be conditional. Outside the `plan` Environment the
+      # token's `sub` matches no role's trust policy (oidc.tf), and fork PRs
+      # never get one.
       id-token: write
     env:
-      # Keep the tag equal to infra/.terraform-version (checked below).
+      # Bump tag and digest together by hand (Dependabot doesn't read images
+      # in workflow files). Keep the Terraform tag equal to
+      # infra/.terraform-version (checked below).
       TERRAFORM_IMAGE: hashicorp/terraform:1.16.5@sha256:c7926feace05d0f7e73542842bf3945924e955a1f782cf000ccbb8d18fa42d77
       TFLINT_IMAGE: ghcr.io/terraform-linters/tflint:v0.64.0@sha256:1c595f42d794c32c45a6ea8b58655fd66433d4ca3b1bc631c574a48d120bd19f
-      PLAN: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+      PLAN_ELIGIBLE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -276,17 +287,9 @@ jobs:
               echo "::endgroup::"
             done'
       # Until ticket 48 adds infra/prod there's nothing to plan.
-      - name: AWS credentials (OIDC)
-        if: env.PLAN == 'true' && hashFiles('infra/prod/*.tf') != ''
-        run: |
-          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
-          echo "::add-mask::$token"
-          mkdir -m 700 "$RUNNER_TEMP/oidc"
-          printf '%s' "$token" > "$RUNNER_TEMP/oidc/token"
       - name: terraform plan (prod)
         id: plan
-        if: env.PLAN == 'true' && hashFiles('infra/prod/*.tf') != ''
+        if: env.PLAN_ELIGIBLE == 'true' && hashFiles('infra/prod/*.tf') != ''
         env:
           # The AWS provider and the S3 backend assume this role themselves
           # from the web identity token file.
@@ -294,7 +297,17 @@ jobs:
           AWS_REGION: eu-north-1
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          mkdir -m 700 "$RUNNER_TEMP/oidc"
+          # fd 3 is the step's real stdout: the mask command must reach the
+          # runner, not the redirected plan output below.
+          exec 3>&1
+          # GitHub's OIDC token lives about five minutes, so each Terraform
+          # run gets a fresh one rather than init's expiring before plan.
           tf() {
+            token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+            echo "::add-mask::$token" >&3
+            printf '%s' "$token" > "$RUNNER_TEMP/oidc/token"
             docker run --rm -v "$PWD:/repo" -v "$RUNNER_TEMP/oidc:/oidc:ro" -w /repo/infra/prod \
               -e AWS_ROLE_ARN -e AWS_REGION -e AWS_WEB_IDENTITY_TOKEN_FILE=/oidc/token \
               -e CLOUDFLARE_API_TOKEN -e TF_IN_AUTOMATION=1 "$TERRAFORM_IMAGE" "$@"

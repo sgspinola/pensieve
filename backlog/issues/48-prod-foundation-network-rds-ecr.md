@@ -12,4 +12,4 @@
 - [ ] Both ECR repositories with immutable tags (or immutable-with-exclusions for a moving `main` tag, if the pinned provider supports it, per spec 12) and lifecycle rules: keep the last 50 `sha-*` (`tagPatternList`), expire untagged after 1 day, no archive tier (spec 11: the running image can be several releases old)
 - [ ] Log groups for app, `cloudflared`, migrate and db-bootstrap, with 30-day retention
 - [ ] Monthly budget with notifications at $10 actual and $20 forecast to the maintainer
-- [ ] CI plan is clean on the PR; applied by the maintainer, and the instance is reachable from inside the VPC only
+- [ ] CI plan is clean on the PR (the first real run of ticket 47's plan path: OIDC as the plan role, the Cloudflare token, and the plan in the run summary); applied by the maintainer, and the instance is reachable from inside the VPC only
