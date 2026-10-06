@@ -3,3 +3,9 @@ variable "admin_user_name" {
   type        = string
   default     = "pensieve-admin"
 }
+
+variable "auditor_user_name" {
+  description = "IAM user security scanners (ScoutSuite) run as. Created by hand, not by this config. The state and log bucket policies let it read each bucket's configuration but nothing else, whatever its IAM policies allow."
+  type        = string
+  default     = "pensieve-auditor"
+}

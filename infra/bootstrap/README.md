@@ -17,6 +17,12 @@ infrastructure depends on, once, from the maintainer's laptop:
 
 - an account-wide IAM Access Analyzer, which flags any of the above (or
   anything later) that becomes reachable from outside the account
+- room for a security auditor: the hand-made `pensieve-auditor` IAM user
+  (`ReadOnlyAccess` and `SecurityAudit`, for ScoutSuite runs) may read both
+  buckets' configuration (versioning, encryption, policy, ACL, public access
+  block, lifecycle, logging, website, tags) but not list or read their
+  objects, whatever its IAM policies allow. This config only names the user
+  (`-var auditor_user_name=<name>` if it differs); it doesn't create it
 - the account audit trail (ticket 58), for investigating after an incident,
   not alerting:
   - the log bucket `pensieve-logs-<account>`: SSE-S3, versioned, TLS-only,
@@ -56,6 +62,7 @@ The procedure for the bootstrap runbook (ticket 56).
    bucket policy denies every principal except that user and the plan role,
    and the log bucket policy every principal except that user, so a wrong
    name locks everyone but the account root out of the state and the logs.
+   (Both also admit the auditor user, for bucket configuration only.)
 2. **Terraform:** exactly the version in `infra/.terraform-version`
    (`brew install tfenv && tfenv install`, or the `hashicorp/terraform:<version>`
    Docker image).

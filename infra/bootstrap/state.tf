@@ -3,7 +3,8 @@
 # The S3 bucket every other root config keeps its state in. Locking uses S3's
 # native lockfile (`use_lockfile = true` in the prod backend), so there's no
 # DynamoDB table. The prod state will hold the Cloudflare tunnel token, so
-# the bucket is KMS-encrypted and only the admin and plan roles can reach it.
+# the bucket is KMS-encrypted and only the admin and plan roles can reach it
+# (plus the auditor user, for the bucket's configuration only).
 
 # kics-scan ignore-block (no explicit policy: the default delegates to IAM, see below)
 resource "aws_kms_key" "state" {
@@ -61,12 +62,29 @@ resource "aws_s3_bucket_ownership_controls" "state" {
 }
 
 locals {
-  admin_user_arn = "arn:aws:iam::${local.account_id}:user/${var.admin_user_name}"
+  admin_user_arn   = "arn:aws:iam::${local.account_id}:user/${var.admin_user_name}"
+  auditor_user_arn = "arn:aws:iam::${local.account_id}:user/${var.auditor_user_name}"
+
+  # What the auditor may do on the state and log buckets: read their
+  # configuration, as ScoutSuite does. Its ReadOnlyAccess would otherwise
+  # also read the objects (the state holds the tunnel token), and ListBucket
+  # is left out too, since object keys alone say something.
+  auditor_bucket_config_reads = [
+    "s3:GetBucketAcl",
+    "s3:GetBucketLogging",
+    "s3:GetBucketPolicy",
+    "s3:GetBucketPublicAccessBlock",
+    "s3:GetBucketTagging",
+    "s3:GetBucketVersioning",
+    "s3:GetBucketWebsite",
+    "s3:GetEncryptionConfiguration",
+    "s3:GetLifecycleConfiguration",
+  ]
 }
 
 data "aws_iam_policy_document" "state_bucket" {
   statement {
-    sid       = "OnlyAdminAndPlan"
+    sid       = "OnlyAdminPlanAndAuditor"
     effect    = "Deny"
     actions   = ["s3:*"]
     resources = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
@@ -77,7 +95,23 @@ data "aws_iam_policy_document" "state_bucket" {
     condition {
       test     = "ArnNotLike"
       variable = "aws:PrincipalArn"
-      values   = [local.admin_user_arn, aws_iam_role.plan.arn]
+      values   = [local.admin_user_arn, aws_iam_role.plan.arn, local.auditor_user_arn]
+    }
+  }
+
+  statement {
+    sid         = "AuditorConfigOnly"
+    effect      = "Deny"
+    not_actions = local.auditor_bucket_config_reads
+    resources   = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "ArnLike"
+      variable = "aws:PrincipalArn"
+      values   = [local.auditor_user_arn]
     }
   }
 

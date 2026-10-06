@@ -2,8 +2,9 @@
 # (KICS wants an Access Analyzer in every file; it's in access-analyzer.tf.)
 # Ticket 58: the account's log bucket. CloudTrail (audit-trail.tf) delivers
 # here, prod's VPC flow logs and Resolver query logs will too (ticket 59),
-# and Athena writes its query results here. Only the admin user can read it;
-# AWS services can only write, each to its own prefix. Investigation only:
+# and Athena writes its query results here. Only the admin user can read it
+# (the auditor user sees the bucket's configuration, not the logs); AWS
+# services can only write, each to its own prefix. Investigation only:
 # nothing here alerts (spec 11 excludes alarms).
 
 # No access logging: it would need yet another bucket. Reads and deletes of
@@ -92,7 +93,7 @@ data "aws_iam_policy_document" "log_bucket" {
   # not a Null test on aws:PrincipalArn: CloudTrail's create-time policy
   # check rejected the Null form (InsufficientS3BucketPolicyException).
   statement {
-    sid       = "OnlyAdmin"
+    sid       = "OnlyAdminAndAuditor"
     effect    = "Deny"
     actions   = ["s3:*"]
     resources = [aws_s3_bucket.logs.arn, "${aws_s3_bucket.logs.arn}/*"]
@@ -108,7 +109,24 @@ data "aws_iam_policy_document" "log_bucket" {
     condition {
       test     = "ArnNotLike"
       variable = "aws:PrincipalArn"
-      values   = [local.admin_user_arn]
+      values   = [local.admin_user_arn, local.auditor_user_arn]
+    }
+  }
+
+  # The auditor reads the bucket's configuration, never the logs (state.tf).
+  statement {
+    sid         = "AuditorConfigOnly"
+    effect      = "Deny"
+    not_actions = local.auditor_bucket_config_reads
+    resources   = [aws_s3_bucket.logs.arn, "${aws_s3_bucket.logs.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "ArnLike"
+      variable = "aws:PrincipalArn"
+      values   = [local.auditor_user_arn]
     }
   }
 
