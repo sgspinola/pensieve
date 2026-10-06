@@ -36,7 +36,7 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 2. As the maintainer, I want Terraform state stored remotely in S3 with versioning, encryption and locking, so that state isn't lost with my laptop, can be recovered after corruption, and two applies can't collide.
 3. As the maintainer, I want the state bucket and CI identity created by a separate, one-off bootstrap config, so that the chicken-and-egg problem (state bucket, CI auth) is solved once and explicitly.
 4. As the maintainer, I want to apply the bootstrap locally with my own credentials, so that CI never holds the power to create its own identity.
-5. As the maintainer, I want to use IAM Identity Center rather than root access keys, so that my local AWS access is short-lived and auditable.
+5. As the maintainer, I want to sign in as a dedicated admin IAM user with `aws login` (short-lived console credentials, no access keys) rather than root access keys, so that my local AWS access is short-lived and auditable.
 6. As the maintainer, I want resources hand-written rather than wrapped in community modules, so that, being new to Terraform, I can see and understand everything that exists.
 7. As the maintainer, I want exact Terraform and pinned provider versions with a committed lockfile, so that plans are reproducible across my laptop and CI.
 8. As the maintainer, I want Dependabot to propose Terraform provider updates, so that pinning doesn't mean falling behind.
@@ -99,7 +99,7 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 - Terraform, not OpenTofu.
 
 **Bootstrap config:**
-- **State bucket:** KMS encryption, versioning, public access blocked, and a bucket policy limiting access to the maintainer's admin role and the plan role. Locking uses the S3 native lockfile (`use_lockfile`), with no DynamoDB table.
+- **State bucket:** KMS encryption, versioning, public access blocked, and a bucket policy limiting access to the maintainer's admin IAM user and the plan role. Locking uses the S3 native lockfile (`use_lockfile`), with no DynamoDB table.
 - **GitHub OIDC provider.**
 - **ECR push role:** trust is limited to the `main` branch of `sgspinola/pensieve`. It can only push to the `pensieve` and `pensieve-db` repositories.
 - **Plan role:** trust is limited to the `plan` GitHub Environment of the repository. It has AWS read-only access plus read access to the state bucket and its lockfile.
@@ -169,7 +169,7 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 - The plan's text output goes to the run summary. No plan file is written as an artifact, and `TF_LOG` is never set.
 
 **Manual prerequisites:**
-- an IAM Identity Center admin user
+- an admin IAM user (`pensieve-admin`, `AdministratorAccess`) for `aws login`
 - a Cloudflare API token for local applies
 - a read-only Cloudflare token for the `plan` environment
 - creating the `plan` GitHub Environment
