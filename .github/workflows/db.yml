@@ -1,7 +1,8 @@
 # Ticket 41: the database's own CI (spec 13, "`db.yml` workflow"). It builds
-# and scans the DB image (db/Dockerfile) and proves every migration applies
-# to an empty database. Unlike ci.yml, it only triggers when a database
-# source changes (the paths below), so app-only changes don't pay for it.
+# and scans the DB image (db/Dockerfile), and proves both that every
+# migration applies to an empty database and that the roles and grants work
+# (ticket 42). Unlike ci.yml, it only triggers when a database source
+# changes (the paths below), so app-only changes don't pay for it.
 # That's also why its jobs aren't required checks in the develop/main
 # rulesets: a required check whose workflow never triggered would block the
 # PR forever. A failing run still shows on the PR; it just doesn't block the
@@ -178,3 +179,48 @@ jobs:
         run: |
           icon=$([ "$OUTCOME" = success ] && echo ":white_check_mark:" || echo ":x:")
           echo "### db-apply $icon $APPLIED of $EXPECTED migration(s) applied to an empty database by the DB image" >> "$GITHUB_STEP_SUMMARY"
+
+  # Ticket 42: the roles-and-grants bootstrap (db/bootstrap.sql) run as a
+  # stand-in for the RDS master user, then the migrations as the migrator,
+  # then what the app role can and can't do (db/bootstrap.test.ts). ci.yml's
+  # unit job runs the same test with the rest of the suite.
+  db-grants:
+    name: db-grants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        # Multi-arch index digest; bump tag and digest together by hand
+        # (Dependabot doesn't read images in workflow files).
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: pensieve
+          POSTGRES_PASSWORD: pensieve
+          POSTGRES_DB: pensieve
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pensieve -d pensieve"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      # A throwaway service container, not a secret. The superuser is needed:
+      # the test creates roles and a database per run.
+      DATABASE_URL: postgres://pensieve:pensieve@localhost:5432/pensieve
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-deps
+      - name: Grants test
+        run: npx vitest run db/bootstrap.test.ts --reporter=default --reporter=json --outputFile=vitest-results.json
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f vitest-results.json ]; then
+            jq -r '"### db-grants \(if .success then ":white_check_mark:" else ":x:" end) \(.numPassedTests) passed, \(.numFailedTests) failed"' \
+              vitest-results.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### db-grants :x: Vitest did not run" >> "$GITHUB_STEP_SUMMARY"
+          fi

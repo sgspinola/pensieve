@@ -54,22 +54,27 @@ Only the right-hand box ships. The builder stage holds the full toolchain and de
 flowchart LR
     subgraph Builder["builder stage — node:24-trixie-slim"]
         Ci["npm ci<br/>(npm 11.16.0)"]
-        Esb["esbuild bundle (npm run build:db)<br/>db/migrate.ts + src/db/connection.ts"]
+        Esb["esbuild bundle (npm run build:db)<br/>db/migrate.ts, db/bootstrap.ts<br/>+ src/db/connection.ts"]
     end
 
     subgraph Runtime["runtime stage — distroless nodejs24 :nonroot"]
         Migrate["migrate.cjs<br/>(default command)"]
+        Boot["bootstrap.cjs"]
+        BootSql["db/bootstrap.sql"]
         Drizzle["drizzle/<br/>*.sql + meta/"]
         Ca["certs/rds-global-bundle.pem"]
     end
 
     Ci --> Esb --> Migrate
-    Ctx["Build context:<br/>drizzle/, certs/"] --> Drizzle
+    Esb --> Boot
+    Ctx["Build context:<br/>drizzle/, db/bootstrap.sql, certs/"] --> Drizzle
+    Ctx --> BootSql
     Ctx --> Ca
 ```
 
-- **Only the migrator.** The builder copies in just what the bundle imports (`db/`, `src/db/` and `tsconfig.json` for the `@/` alias), and esbuild bundles `db/migrate.ts` with drizzle-orm's migrator, postgres.js and the `src/db/connection.ts` helper (including the AWS RDS signer) into one CommonJS file. The runtime needs neither drizzle-kit nor `node_modules`.
+- **Only the database's entrypoints.** The builder copies in just what the bundles import (`db/`, `src/db/` and `tsconfig.json` for the `@/` alias), and esbuild bundles `db/migrate.ts` and `db/bootstrap.ts`, each with postgres.js and the `src/db/connection.ts` helper (including the AWS RDS signer), into self-contained CommonJS files. The runtime needs neither drizzle-kit nor `node_modules`.
 - **Its default command migrates.** `docker run <db-image>` runs `migrate.cjs`, which applies the SQL under `drizzle/` with drizzle-orm's migrator and exits 0, or 1 on any failure. It connects through the same helper as the app: `DATABASE_URL` when it's set, RDS IAM auth from the `PG*` variables otherwise.
+- **`bootstrap.cjs` creates the roles and grants.** `docker run <db-image> bootstrap.cjs` runs `db/bootstrap.sql` in one transaction, so a failure changes nothing (see [Roles and grants](/architecture/database-schema#roles-and-grants)). In AWS it logs in as the RDS master user, with the user and password ECS injects from the RDS-managed master secret (the helper's password mode, still over verified TLS). It runs only as a one-off task the maintainer launches, never from CI.
 - **Everything is read-only.** No path in the image is writable by the `nonroot` user, and nothing needs to be.
 
 Local development and the app's CI don't use the DB image. They migrate with drizzle-kit (`npm run db:migrate`).
@@ -129,4 +134,5 @@ A `trivy` job then downloads that artifact and scans it for known vulnerabilitie
 The DB image has its own workflow, `.github/workflows/db.yml`. It runs on pull requests into `develop`/`main` and pushes to them, but only when a database source changes: `drizzle/`, `db/`, `src/db/`, `certs/`, `drizzle.config.ts`, `.dockerignore` or the workflow itself. App-only changes and dependency bumps skip it. For the same reason its jobs aren't required checks in the rulesets, since a required check whose workflow never ran would block the PR. A failing run still shows on the PR. Dependency bumps are still covered by `ci.yml`'s `unit` job, which runs drizzle-orm's migrator on every change.
 
 - **`db-image`** builds the DB image natively on an arm64 runner and scans it as the app image is scanned: Trivy's secret scan with `trivy-secret.yaml`, then its vulnerability scan with `.trivyignore`. Either finding fails the job, and both go to Code Scanning (`Secrets`, `Container SCA`). The migrator is a single esbuild bundle that Trivy can't see into, so this scan covers the distroless base. The npm packages bundled into it also ship in the app image, where the `trivy` job sees them. A clean image is uploaded as the `pensieve-db-image` artifact for 1 day.
+- **`db-grants`** runs the grants test (`db/bootstrap.test.ts`, see [Roles and grants](/architecture/database-schema#roles-and-grants)) against a `postgres:17-alpine` service container. `ci.yml`'s `unit` job also runs it, with the rest of the suite.
 - **`db-apply`** runs that image's migrator against a fresh `postgres:17-alpine` service container, applying every migration to an empty database. It then checks that Drizzle's bookkeeping table records as many migrations as the journal lists.

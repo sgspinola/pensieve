@@ -9,9 +9,10 @@ import postgres from "postgres";
  * tests) it's used as-is. Otherwise the connection comes from the libpq-style
  * PGHOST/PGPORT/PGDATABASE/PGUSER variables, authenticated with RDS IAM: the
  * password is a function postgres.js calls for every new connection, which
- * signs a fresh 15-minute token with the task role's credentials, so no
- * database password exists anywhere. IAM auth requires TLS, verified against
- * the RDS CA bundle shipped in the image.
+ * signs a fresh 15-minute token with the task role's credentials, so the app
+ * and migrate tasks hold no database password. (The one-off bootstrap task
+ * is the exception: it logs in as master, see AuthMode.) IAM auth requires
+ * TLS, verified against the RDS CA bundle shipped in the image.
  */
 export type ConnectionConfig =
   | { url: string }
@@ -36,11 +37,24 @@ export interface ConnectionDeps {
   readCaBundle: () => string;
 }
 
-export function getConnectionConfig(env: Record<string, string | undefined>, deps: ConnectionDeps): ConnectionConfig {
+/**
+ * How to log in without DATABASE_URL: with an IAM token (the app and the
+ * migrator), or with the password in PGPASSWORD (ticket 42: only the DB
+ * image's bootstrap, which logs in as the RDS master user; ECS injects the
+ * user and password from the RDS-managed master secret). TLS is verified
+ * against the RDS CA bundle either way.
+ */
+export type AuthMode = "iam" | "password";
+
+export function getConnectionConfig(
+  env: Record<string, string | undefined>,
+  deps: ConnectionDeps,
+  auth: AuthMode = "iam",
+): ConnectionConfig {
   if (env.DATABASE_URL) {
     return { url: env.DATABASE_URL };
   }
-  const required = ["PGHOST", "PGPORT", "PGDATABASE", "PGUSER"] as const;
+  const required = ["PGHOST", "PGPORT", "PGDATABASE", "PGUSER", ...(auth === "password" ? ["PGPASSWORD"] : [])];
   const missing = required.filter((name) => !env[name]);
   if (missing.length > 0) {
     throw new Error(`DATABASE_URL is not set, and neither are ${missing.join(", ")}`);
@@ -51,12 +65,14 @@ export function getConnectionConfig(env: Record<string, string | undefined>, dep
     throw new Error(`PGPORT must be a port number, got "${env.PGPORT}"`);
   }
   const username = env.PGUSER!;
+  const masterPassword = env.PGPASSWORD;
   return {
     host,
     port,
     database: env.PGDATABASE!,
     username,
-    password: () => deps.signToken({ hostname: host, port, username }),
+    password:
+      auth === "password" ? async () => masterPassword! : () => deps.signToken({ hostname: host, port, username }),
     ssl: { ca: deps.readCaBundle(), rejectUnauthorized: true },
   };
 }
@@ -76,7 +92,7 @@ const awsDeps: ConnectionDeps = {
  * `options` tune the client (pool size, timeouts); in IAM mode the connection
  * settings, including the token password and verified TLS, always win.
  */
-export function connect(options: postgres.Options<Record<string, never>> = {}): postgres.Sql {
-  const config = getConnectionConfig(process.env, awsDeps);
+export function connect(options: postgres.Options<Record<string, never>> = {}, auth: AuthMode = "iam"): postgres.Sql {
+  const config = getConnectionConfig(process.env, awsDeps, auth);
   return "url" in config ? postgres(config.url, options) : postgres({ ...options, ...config });
 }

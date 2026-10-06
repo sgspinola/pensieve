@@ -115,3 +115,31 @@ erDiagram
 - **`items` and `flashcards` are deliberately separate tables**, not one polymorphic table. A comment at `src/db/schema.ts:172-175` explains why: none of `items`' fields (`kind`, `parentId`, `url`, `description`, `notes`) apply to a flashcard, which is just a front/back recall pair. What they *do* share is the `tags` table — `item_tags` and `flashcard_tags` are structurally identical join tables against the same `tags` pool, so tag autocomplete and tag-pruning logic is shared across both features rather than duplicated (confirmed by `graphify explain "tags.ts"`, degree 43: both `src/services/items/items.ts` and `src/services/flashcards/flashcards.ts` import it directly, alongside `src/services/items/wiki.ts` and most item/flashcard pages).
 - **`items.title` is `NOT NULL`**, but that wasn't always true — a comment (`src/db/schema.ts:119-123`) notes the constraint was added later (ticket "03: batch-import-export-and-article-item-type") once `createItem()` itself started rejecting a request that would otherwise resolve to an empty title; `scripts/backfill-item-titles.ts` exists specifically to backfill pre-existing rows before that constraint could be added.
 - **`items.kind` grew a fourth value (`"article"`) after a rename**, not from scratch: the comment at `src/db/schema.ts:99-101` says `"page"` (the wiki kind) used to be stored as the literal string `"article"` before a migration renamed it, freeing up `"article"` for a new, link-shaped "saved to read" kind.
+
+## Roles and grants
+
+In AWS, nothing connects as the RDS master user except the one-off bootstrap. `db/bootstrap.sql` creates two least-privilege roles, and the DB image's `bootstrap.cjs` runs it as master (see [DB image](/architecture/deployable-image#db-image)). Both roles are granted `rds_iam`, so they log in only with short-lived IAM tokens, never a password.
+
+| | `pensieve_migrator` | `pensieve_app` |
+| --- | --- | --- |
+| `public` (the tables above) | owns every table, sequence and type the migrations create | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on tables, `USAGE` on sequences; no DDL |
+| `drizzle` (migration bookkeeping) | owns it | `SELECT` only |
+| `pensieve_meta` | owns it | `SELECT` only |
+| Database | `CREATE` (drizzle-orm's migrator issues `CREATE SCHEMA IF NOT EXISTS drizzle`) | `CONNECT` only |
+
+```mermaid
+flowchart LR
+    Master["RDS master user<br/>(bootstrap.cjs only)"] -->|"creates, grants rds_iam"| Migrator["pensieve_migrator"]
+    Master -->|"creates, grants rds_iam"| App["pensieve_app"]
+    Master -->|"ALTER DEFAULT PRIVILEGES<br/>FOR ROLE pensieve_migrator"| Defaults["default privileges"]
+    Migrator -->|"migrations create<br/>tables, sequences"| Objects["public, drizzle,<br/>pensieve_meta objects"]
+    Defaults -.->|"applied to each new object"| Objects
+    App -->|"rows in public;<br/>read-only elsewhere"| Objects
+```
+
+- **Default privileges, not per-table grants.** The app role's privileges come from `ALTER DEFAULT PRIVILEGES FOR ROLE pensieve_migrator`, set per schema. So every table a later migration creates is immediately readable and writable in `public`, and readable in `drizzle` and `pensieve_meta`, with no new grant.
+- **The bootstrap pre-creates `drizzle` and `pensieve_meta`**, owned by the migrator, so the app role's `USAGE` and default privileges can be set before the migrator first runs.
+- **Idempotent and additive.** Re-running the bootstrap is safe and changes nothing already in place, and it runs in one transaction, so a failure changes nothing either. It never removes a privilege: taking one away means adding an explicit `REVOKE` to the script and re-running it.
+- **Run as master, but not as a superuser.** RDS's master user is a `CREATEROLE` user that owns the database, so the script first grants itself membership of `pensieve_migrator`, which acting for that role requires.
+
+`db/bootstrap.test.ts` proves all of this against real Postgres. It runs the bootstrap as a non-superuser stand-in for the RDS master user, with a stub `rds_iam`, then applies the migrations as the migrator. Then, as the app role, it checks that the app role can read and write rows but is refused DDL, can write a table the migrator creates later, and can read but not write the bookkeeping table and `pensieve_meta`. A second bootstrap run must leave every role, membership, owner and privilege unchanged.

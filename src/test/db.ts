@@ -10,7 +10,8 @@ export type TestDatabase = PostgresJsDatabase<typeof schema>;
 
 /**
  * Creates an isolated, throwaway Postgres database for a single test run,
- * migrates it to the current schema, and returns a scoped drizzle client plus
+ * migrates it to the current schema (unless `migrate: false`, for tests that
+ * must act on the empty database first), and returns a scoped drizzle client plus
  * a teardown function that drops the database and closes the connection.
  *
  * A full database-per-run (rather than a schema-per-run within one shared
@@ -25,8 +26,10 @@ export type TestDatabase = PostgresJsDatabase<typeof schema>;
  * it needs a superuser `DATABASE_URL` it can rewrite to point at each
  * throwaway database, which tests always have (they never use IAM auth).
  */
-export async function createTestDb(): Promise<{
+export async function createTestDb(options: { migrate?: boolean } = {}): Promise<{
   db: TestDatabase;
+  /** The same single superuser connection, for tests that need raw SQL. */
+  sql: postgres.Sql;
   teardown: () => Promise<void>;
 }> {
   const adminConnectionString = getDatabaseUrl();
@@ -45,16 +48,18 @@ export async function createTestDb(): Promise<{
 
   try {
     const db = drizzle(sql, { schema });
-    await migrate(db, {
-      migrationsFolder: path.join(process.cwd(), "drizzle"),
-    });
+    if (options.migrate !== false) {
+      await migrate(db, {
+        migrationsFolder: path.join(process.cwd(), "drizzle"),
+      });
+    }
 
     const teardown = async () => {
       await sql.end();
       await dropDatabase(adminConnectionString, dbName);
     };
 
-    return { db, teardown };
+    return { db, sql, teardown };
   } catch (err) {
     await sql.end();
     await dropDatabase(adminConnectionString, dbName);

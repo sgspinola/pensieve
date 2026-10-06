@@ -33,7 +33,7 @@ flowchart TB
         TestMod["vitest community (15 nodes)<br/>src/test/db.ts, shared test fixtures"]
         E2EMod["e2e communities<br/>smoke.spec.ts, global-setup/teardown"]
         OpsMod["src/ops/healthcheck.ts<br/>(app image HEALTHCHECK; isolated:<br/>reaches /api/health over HTTP, not imports)"]
-        DbImgMod["db/migrate.ts (DB image entrypoint;<br/>community: connection.ts)"]
+        DbImgMod["db/migrate.ts, db/bootstrap.ts<br/>(DB image entrypoints;<br/>community: connection.ts)"]
     end
 
     ItemsUI --> RoutesGroup
@@ -62,7 +62,7 @@ flowchart TB
     DbImgMod -->|"drizzle migrator"| DrizzleMod
 ```
 
-Neither entrypoint is imported by the app. `src/ops/healthcheck.ts` is bundled into the app image as its `HEALTHCHECK`, and `db/migrate.ts`, which reaches Postgres through the shared `src/db/connection.ts` helper, is bundled into the separate DB image as its migrator (see [Deployable image](/architecture/deployable-image)).
+Neither entrypoint is imported by the app. `src/ops/healthcheck.ts` is bundled into the app image as its `HEALTHCHECK`, and `db/migrate.ts` and `db/bootstrap.ts`, which reach Postgres through the shared `src/db/connection.ts` helper, are bundled into the separate DB image as its migrator and roles-and-grants bootstrap (see [Deployable image](/architecture/deployable-image)).
 
 ## What the community structure actually tells you
 
