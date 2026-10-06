@@ -212,6 +212,123 @@ jobs:
         run: |
           echo "### docs-build :white_check_mark: VitePress site built" >> "$GITHUB_STEP_SUMMARY"
 
+  # Ticket 47: every Terraform root config under infra/ is fmt-checked,
+  # validated without a backend and linted (infra/.tflint.hcl pins the AWS
+  # ruleset). On PRs from this repository's own branches, the prod config is
+  # also planned, inside the `plan` Environment: AWS via OIDC as the
+  # read-only plan role (the only role that trusts that Environment), and
+  # Cloudflare with a read-only Zone+Tunnel token held as an Environment
+  # secret. Forks and Dependabot run no plan and get no Environment, so they
+  # never hold either credential. Every job runs on every change, so pushes
+  # run the checks too, with no Environment.
+  #
+  # Nothing here may leak state values into this public repository: the plan
+  # text goes only to the run summary (where Terraform masks sensitive
+  # values), no plan file is written, and Terraform runs in containers that
+  # receive only the variables passed with -e, so TF_LOG can't reach it.
+  # arm64, because the lockfiles carry darwin-arm64 and linux-arm64 checksums.
+  iac:
+    name: iac
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    environment: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') && 'plan' || '' }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # Keep the tag equal to infra/.terraform-version (checked below).
+      TERRAFORM_IMAGE: hashicorp/terraform:1.16.5@sha256:c7926feace05d0f7e73542842bf3945924e955a1f782cf000ccbb8d18fa42d77
+      TFLINT_IMAGE: ghcr.io/terraform-linters/tflint:v0.64.0@sha256:1c595f42d794c32c45a6ea8b58655fd66433d4ca3b1bc631c574a48d120bd19f
+      PLAN: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Terraform version
+        run: |
+          want=$(cat infra/.terraform-version)
+          got=${TERRAFORM_IMAGE#*:}; got=${got%@*}
+          if [ "$want" != "$got" ]; then
+            echo "::error::TERRAFORM_IMAGE is $got but infra/.terraform-version says $want"
+            exit 1
+          fi
+      - name: terraform fmt
+        run: docker run --rm -v "$PWD:/repo" -w /repo "$TERRAFORM_IMAGE" fmt -check -recursive -diff infra
+      - name: terraform validate
+        run: |
+          for dir in infra/*/; do
+            echo "::group::$dir"
+            docker run --rm -v "$PWD:/repo" -w "/repo/$dir" "$TERRAFORM_IMAGE" init -backend=false -input=false
+            docker run --rm -v "$PWD:/repo" -w "/repo/$dir" "$TERRAFORM_IMAGE" validate
+            echo "::endgroup::"
+          done
+      - name: tflint
+        env:
+          # tflint --init downloads the plugin from GitHub's API; unauthenticated, it's rate-limited.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo -e GITHUB_TOKEN --entrypoint sh "$TFLINT_IMAGE" -c '
+            set -e
+            tflint --init --config=/repo/infra/.tflint.hcl
+            for dir in infra/*/; do
+              echo "::group::$dir"
+              tflint --chdir="$dir" --config=/repo/infra/.tflint.hcl
+              echo "::endgroup::"
+            done'
+      # Until ticket 48 adds infra/prod there's nothing to plan.
+      - name: AWS credentials (OIDC)
+        if: env.PLAN == 'true' && hashFiles('infra/prod/*.tf') != ''
+        run: |
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$token"
+          mkdir -m 700 "$RUNNER_TEMP/oidc"
+          printf '%s' "$token" > "$RUNNER_TEMP/oidc/token"
+      - name: terraform plan (prod)
+        id: plan
+        if: env.PLAN == 'true' && hashFiles('infra/prod/*.tf') != ''
+        env:
+          # The AWS provider and the S3 backend assume this role themselves
+          # from the web identity token file.
+          AWS_ROLE_ARN: ${{ vars.PLAN_ROLE_ARN }}
+          AWS_REGION: eu-north-1
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          tf() {
+            docker run --rm -v "$PWD:/repo" -v "$RUNNER_TEMP/oidc:/oidc:ro" -w /repo/infra/prod \
+              -e AWS_ROLE_ARN -e AWS_REGION -e AWS_WEB_IDENTITY_TOKEN_FILE=/oidc/token \
+              -e CLOUDFLARE_API_TOKEN -e TF_IN_AUTOMATION=1 "$TERRAFORM_IMAGE" "$@"
+          }
+          # Output (errors included) goes to a file for the summary, not to the log.
+          # The plan role can't write the state lockfile, hence -lock=false.
+          {
+            tf init -reconfigure -input=false -no-color &&
+              tf plan -lock=false -input=false -no-color
+          } > "$RUNNER_TEMP/plan.txt" 2>&1
+      - name: Summary
+        if: always()
+        env:
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          icon=$([ "$JOB_STATUS" = success ] && echo ":white_check_mark:" || echo ":x:")
+          case "$PLAN_OUTCOME" in
+            success|failure) plan="prod plan below ($PLAN_OUTCOME)" ;;
+            *) plan="no plan (only same-repository PRs, once infra/prod exists)" ;;
+          esac
+          echo "### iac $icon fmt, validate and tflint over $(echo infra/*/ | xargs -n1 basename | paste -sd, -); $plan" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$RUNNER_TEMP/plan.txt" ]; then
+            {
+              echo '<details open><summary>terraform plan (prod)</summary>'
+              echo
+              echo '```'
+              # A step summary is capped at 1 MiB.
+              head -c 900000 "$RUNNER_TEMP/plan.txt"
+              echo '```'
+              echo '</details>'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # Ticket 31: TruffleHog over just the commits under test: the PR's range,
   # or a push's before..after. History older than that was scanned when it
   # landed, and GitHub secret scanning covers it continuously. Fails on
