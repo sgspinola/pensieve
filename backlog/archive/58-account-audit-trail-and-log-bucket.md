@@ -4,7 +4,11 @@
 
 **Blocked by:** 46 (bootstrap config merged and applied, with the `pensieve-admin` IAM user as the admin principal)
 
-**Status:** ready-for-agent
+**Status:** done
+
+**Completed:** on `feat/58-account-audit-trail-and-log-bucket`
+
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/47
 
 - [x] Log bucket `pensieve-logs-<account>`, its name shared through the bootstrap names so prod can deliver to it: SSE-S3, versioning, public access blocked, TLS-only, bucket-owner-enforced
 - [x] Bucket policy denies every principal except the admin user. The deny exempts AWS service principals (`aws:PrincipalIsAWSService` is `false`), because they carry no `aws:PrincipalArn` and a plain `ArnNotLike` would deny them. (A `Null` test on `aws:PrincipalArn` was the original plan, but CloudTrail's create-time policy check rejected it with `InsufficientS3BucketPolicyException`.) Allow statements let CloudTrail and log delivery write to their own prefixes only, scoped by `aws:SourceAccount` and `aws:SourceArn`
@@ -16,5 +20,5 @@
 - [x] Data events, using advanced event selectors: every object-level call on the state bucket; on the log bucket, everything except `PutObject`, so log delivery doesn't feed back into the trail but reads and deletes of the logs are still recorded
 - [x] Athena workgroup with results under `athena-results/`, and a CloudTrail Glue table that uses partition projection, so no partitions ever need adding
 - [x] Bootstrap README updated: what's created and the expected resource count at the plan-review step
-- [ ] Applied by the maintainer. An Athena query shows the plan role's `GetObject` on the state file after a CI plan, and `aws cloudtrail validate-logs` passes
-  - Applied on 2026-10-06. `validate-logs` passes (2/2 digest files, 11/11 log files), and test queries against the Glue table return events. Still waiting: the plan-role `GetObject` query, which needs ticket 47's CI plan
+- [x] Applied by the maintainer. An Athena query shows the plan role's `GetObject` on the state file after a CI plan, and `aws cloudtrail validate-logs` passes
+  - Applied on 2026-10-06. `validate-logs` passes (2/2 digest files, 11/11 log files), and test queries against the Glue table return events. The plan-role query also returns rows: ticket 47's CI smoke-test plans on 2026-10-06 (about 17:50–18:26 UTC) show `GetObject` on `ci-smoke/terraform.tfstate` by the `pensieve-github-plan` role (`NoSuchKey`, since that object never existed, but the read is recorded with who made it)
