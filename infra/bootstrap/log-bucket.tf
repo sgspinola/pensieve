@@ -87,8 +87,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
 
 data "aws_iam_policy_document" "log_bucket" {
   # Service principals carry no aws:PrincipalArn, and ArnNotLike matches a
-  # missing key, so without the Null test this would deny CloudTrail and log
-  # delivery too. The allows below scope those.
+  # missing key, so without an exemption this would deny CloudTrail and log
+  # delivery too. The allows below scope those. aws:PrincipalIsAWSService,
+  # not a Null test on aws:PrincipalArn: CloudTrail's create-time policy
+  # check rejected the Null form (InsufficientS3BucketPolicyException).
   statement {
     sid       = "OnlyAdmin"
     effect    = "Deny"
@@ -99,8 +101,8 @@ data "aws_iam_policy_document" "log_bucket" {
       identifiers = ["*"]
     }
     condition {
-      test     = "Null"
-      variable = "aws:PrincipalArn"
+      test     = "Bool"
+      variable = "aws:PrincipalIsAWSService"
       values   = ["false"]
     }
     condition {
