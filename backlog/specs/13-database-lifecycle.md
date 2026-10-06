@@ -76,7 +76,7 @@ The database gets its own artifact, its own CI workflow and its own deploy workf
 - It contains `drizzle/`, the migrate and bootstrap entrypoints, and the RDS CA bundle. No Next.js, no app code.
 - It connects using the shared connection helper (spec 11): `DATABASE_URL` locally and in CI, IAM auth in AWS.
 - Two commands:
-  - **`migrate.cjs`**: the drizzle-orm migrator, with breaking-migration enforcement (below).
+  - **`migrate.cjs`**: the drizzle-orm migrator, with breaking-migration enforcement (below). (Revised during ticket 43: drizzle's own `migrate()` runs inside a transaction the migrator owns, where drizzle's transaction becomes a savepoint, so the breaking check and `schema_compat` commit or roll back with it. The breaking check runs after `migrate()`, on the bookkeeping rows it added, and a refusal rolls the whole batch back.)
   - **`bootstrap.cjs`**: runs the bootstrap SQL as the RDS master user, using the RDS-managed master secret.
 
 **Breaking-migration marker:**
@@ -85,10 +85,10 @@ The database gets its own artifact, its own CI workflow and its own deploy workf
 - No linter enforces the marker. It's a review-time judgement; the startup check is the backstop.
 
 **Migrator behaviour:**
-- Before applying, it computes the pending migrations by comparing the bundled journal with Drizzle's bookkeeping table.
+- Before applying, it computes the pending migrations by comparing the bundled journal with Drizzle's bookkeeping table. (Revised during ticket 43: drizzle's `migrate()` decides what's pending, and the migrator reads back which journal entries it applied, from the bookkeeping rows' `created_at`, which equals each entry's `when`. That way drizzle's pending rule isn't duplicated.)
 - If any pending migration is breaking and the `ALLOW_BREAKING` environment variable isn't `true`, it exits non-zero with a message naming the breaking migrations, without applying anything. `deploy-db` sets that variable only when an `app_sha` was supplied.
-- drizzle-orm's migrator applies all pending migrations in one transaction, so a failure part-way also leaves the schema unchanged.
-- **Compat metadata:** in the same transaction, the migrator upserts a single-row table, `pensieve_meta.schema_compat`. It holds the tag of the newest *breaking* migration ever applied, and is null if there's none. The schema is owned by the migrator role, and the app role has `SELECT` on it only.
+- The migrator applies all pending migrations in one transaction, so a failure part-way also leaves the schema unchanged. (Revised during ticket 43: the transaction is the migrator's own, with drizzle's nested inside it as a savepoint, and it also covers the breaking check and the `schema_compat` upsert.)
+- **Compat metadata:** in the same transaction, the migrator upserts a single-row table, `pensieve_meta.schema_compat`. It holds the tag of the newest *breaking* migration ever applied, and is null if there's none. The schema is owned by the migrator role, and the app role has `SELECT` on it only. (Revised during ticket 43: after a batch, every journal entry is applied, so the migrator records the journal's newest breaking tag, which covers one applied by drizzle-kit or before the table existed. With nothing pending, the database may be ahead of the image's journal, so the recorded tag is left alone.)
 
 **Startup check (replaces spec 11's exact-match check):**
 - At build time the app image includes `drizzle/meta/_journal.json`, which lists tags only, no SQL.

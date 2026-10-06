@@ -100,6 +100,8 @@ Built for ticket 29. After `graphify update .`, `graphify explain "migrate.ts"` 
 
 Revised for ticket 41, when the migrator moved into its own DB image. After `graphify update .`, `graphify explain "migrate.ts"` placed `db/migrate.ts` in the `connection.ts` community, with `connect()` as its only in-repo dependency. That's the label on its new module-structure node, which replaced the old `src/ops/*` node's migrator half. The graph sees neither `db/Dockerfile` nor `db.yml`, so the DB image's stage diagram, its contents and the `db.yml` job descriptions were written from those files directly. The image's contents, its default command and exit codes, and the drizzle-kit e2e path were confirmed by building both images and running them against a disposable Postgres.
 
+Revised again for ticket 43, when the migrator gained breaking-migration enforcement. `graphify explain "migrations.ts"` puts `db/migrations.ts` in the `connection.ts` community, imported by both DB tests. But the graph can't see the marker convention, drizzle's `migrate()` running as a savepoint inside the migrator's transaction, or `schema_compat`. The migrator bullets and the revised run-time `sequenceDiagram` (still hand-drawn, for the same container-level reason as before) were written from `db/migrations.ts`, its tests and drizzle-orm's postgres-js session and dialect sources. They were confirmed by running the built image against disposable Postgres instances, in both orders with drizzle-kit, and with a breaking fixture mounted as `drizzle/`, with and without `ALLOW_BREAKING=true`.
+
 ## Flow pages (Trailmark)
 
 ### Login with a passkey

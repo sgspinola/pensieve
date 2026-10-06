@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { migrate } from "drizzle-orm/postgres-js/migrator";
 import type postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createTestDb, type TestDatabase } from "@/test/db";
+import { createTestDb } from "@/test/db";
+import { runMigrations } from "./migrations";
 
 /**
  * Ticket 42: the roles-and-grants bootstrap (db/bootstrap.sql), proven
@@ -22,7 +22,6 @@ const BOOTSTRAP_SQL = readFileSync(path.join(process.cwd(), "db", "bootstrap.sql
 const MASTER = "bootstrap_test_master";
 const ROLES = ["pensieve_app", "pensieve_migrator", MASTER, "rds_iam"];
 
-let db: TestDatabase;
 let sql: postgres.Sql;
 let teardown: () => Promise<void>;
 
@@ -47,7 +46,7 @@ async function bootstrap(): Promise<void> {
 }
 
 beforeAll(async () => {
-  ({ db, sql, teardown } = await createTestDb({ migrate: false }));
+  ({ sql, teardown } = await createTestDb({ migrate: false }));
   await sql.unsafe("SET client_min_messages = warning");
   await dropRoles();
   await sql.unsafe("CREATE ROLE rds_iam");
@@ -57,7 +56,9 @@ beforeAll(async () => {
   await sql.unsafe(`ALTER DATABASE "${name}" OWNER TO ${MASTER}`);
 
   await bootstrap();
-  await asRole("pensieve_migrator", () => migrate(db, { migrationsFolder: path.join(process.cwd(), "drizzle") }));
+  await asRole("pensieve_migrator", () =>
+    runMigrations(sql, { migrationsFolder: path.join(process.cwd(), "drizzle"), allowBreaking: false }),
+  );
 });
 
 afterAll(async () => {
@@ -116,6 +117,12 @@ describe("the app role, after bootstrap and migrations", () => {
     await expect(
       asRole("pensieve_app", () => sql`insert into drizzle.__drizzle_migrations (hash, created_at) values ('x', 0)`),
     ).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("can read the migrator's schema_compat row (ticket 43)", async () => {
+    const rows = await asRole("pensieve_app", () => sql`select breaking_tag from pensieve_meta.schema_compat`);
+
+    expect(rows).toEqual([{ breaking_tag: null }]);
   });
 
   it("can read pensieve_meta but not write it", async () => {

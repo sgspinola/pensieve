@@ -124,8 +124,8 @@ In AWS, nothing connects as the RDS master user except the one-off bootstrap. `d
 | --- | --- | --- |
 | `public` (the tables above) | owns every table, sequence and type the migrations create | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on tables, `USAGE` on sequences; no DDL |
 | `drizzle` (migration bookkeeping) | owns it | `SELECT` only |
-| `pensieve_meta` | owns it | `SELECT` only |
-| Database | `CREATE` (drizzle-orm's migrator issues `CREATE SCHEMA IF NOT EXISTS drizzle`) | `CONNECT` only |
+| `pensieve_meta` (`schema_compat`: the newest breaking migration applied) | owns it | `SELECT` only |
+| Database | `CREATE` (the migrator issues `CREATE SCHEMA IF NOT EXISTS` for `drizzle` and `pensieve_meta`) | `CONNECT` only |
 
 ```mermaid
 flowchart LR
