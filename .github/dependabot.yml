@@ -13,6 +13,12 @@ updates:
     # younger version anyway). Security updates ignore cooldowns.
     cooldown:
       default-days: 7
+    # Version updates only for deps declared in package.json; transitive
+    # bumps were lockfile-only PR noise. `allow` also filters security
+    # updates, so a vulnerable transitive dep raises an alert but no PR.
+    # Fix it by hand (npm update / overrides).
+    allow:
+      - dependency-type: "direct"
     ignore:
       # Ticket 27: typescript-eslint supports `typescript >=4.8.4 <6.1.0`;
       # TypeScript 7 crashes ESLint on startup. Drop this once
