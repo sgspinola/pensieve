@@ -73,8 +73,8 @@ flowchart LR
 ```
 
 - **Only the database's entrypoints.** The builder copies in just what the bundles import (`db/`, `src/db/` and `tsconfig.json` for the `@/` alias), and esbuild bundles `db/migrate.ts` and `db/bootstrap.ts`, each with postgres.js and the `src/db/connection.ts` helper (including the AWS RDS signer), into self-contained CommonJS files. The runtime needs neither drizzle-kit nor `node_modules`.
-- **Its default command migrates.** `docker run <db-image>` runs `migrate.cjs`, which applies the pending migrations under `drizzle/` and exits 0, or 1 on any failure. It works out what's pending exactly as drizzle-orm's migrator does: journal entries newer than the newest one recorded in Drizzle's bookkeeping table. It then applies them in one transaction, with the same bookkeeping rows, so it and drizzle-kit always agree on what's applied.
-  - **Breaking migrations are refused by default.** If any pending migration's SQL file starts with `-- pensieve:breaking`, it exits 1 naming them and applies nothing, unless `ALLOW_BREAKING=true` (see the README's "Additive or breaking?").
+- **Its default command migrates.** `docker run <db-image>` runs `migrate.cjs`, which applies the pending migrations under `drizzle/` and exits 0, or 1 on any failure. drizzle-orm's own `migrate()` decides what's pending and applies it, so the image and drizzle-kit always agree on what's applied. It runs inside one transaction the migrator owns, where drizzle's own transaction becomes a savepoint. The checks below then run on the rows `migrate()` added to Drizzle's bookkeeping table.
+  - **Breaking migrations are refused by default.** If any migration in the batch has a SQL file starting with `-- pensieve:breaking`, it exits 1 naming them, unless `ALLOW_BREAKING=true` (see the README's "Additive or breaking?"). The refusal rolls the transaction back, so nothing is applied.
   - **`pensieve_meta.schema_compat`.** In the same transaction it upserts this single-row table with the tag of the newest breaking migration ever applied (null if none). The app's startup check (ticket 44) will read it.
   - A failure anywhere rolls the whole batch back. It connects through the same helper as the app: `DATABASE_URL` when it's set, RDS IAM auth from the `PG*` variables otherwise.
 - **`bootstrap.cjs` creates the roles and grants.** `docker run <db-image> bootstrap.cjs` runs `db/bootstrap.sql` in one transaction, so a failure changes nothing (see [Roles and grants](/architecture/database-schema#roles-and-grants)). In AWS it logs in as the RDS master user, with the user and password ECS injects from the RDS-managed master secret (the helper's password mode, still over verified TLS). It runs only as a one-off task the maintainer launches, never from CI.
@@ -93,12 +93,14 @@ sequenceDiagram
     participant DB as Postgres
 
     Op->>Mig: docker run <db-image> (DATABASE_URL, or PG* vars for RDS IAM)
-    Mig->>DB: BEGIN; read Drizzle's bookkeeping table
-    alt a pending migration is breaking and ALLOW_BREAKING isn't "true"
-        Mig->>DB: ROLLBACK
+    Mig->>DB: BEGIN; note the newest bookkeeping row
+    Mig->>DB: drizzle migrate() in a savepoint: pending SQL + bookkeeping rows
+    Mig->>DB: read the rows migrate() added
+    alt one of them is breaking and ALLOW_BREAKING isn't "true"
+        Mig->>DB: ROLLBACK (migrate()'s work included)
         Mig-->>Op: exit 1 + "breaking migration(s) pending: <tags>"
-    else pending migrations apply
-        Mig->>DB: pending SQL, bookkeeping rows, upsert pensieve_meta.schema_compat; COMMIT
+    else
+        Mig->>DB: upsert pensieve_meta.schema_compat; COMMIT
         Mig-->>Op: exit 0 (also when nothing was pending)
     else unreachable DB, bad SQL, no DATABASE_URL or PG* vars
         Mig-->>Op: exit 1 + "Migration failed: … (cause)", nothing applied
