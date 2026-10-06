@@ -4,9 +4,9 @@
 
 **Blocked by:** 46 (plan role)
 
-**Status:** in-progress (code on `feat/47-ci-iac-job`, PR #48; rulesets and the `plan` Environment's variable and secret pending)
+**Status:** in-progress (code on `feat/47-ci-iac-job`, PR #48; the `plan` Environment's variable and secret pending)
 
-- [ ] `iac` job runs fmt, validate and tflint (AWS plugin pinned) on both configs on every change, and is added by name to the `develop`/`main` rulesets' required checks — job done (loops over every `infra/*/` config; `infra/.tflint.hcl` pins the AWS ruleset at 0.49.0). Rulesets not yet updated
+- [x] `iac` job runs fmt, validate and tflint (AWS plugin pinned) on both configs on every change, and is added by name to the `develop`/`main` rulesets' required checks — job loops over every `infra/*/` config; `infra/.tflint.hcl` pins the AWS ruleset at 0.49.0. Added to `protect-main`; `protect-develop` deliberately requires no checks, so nothing was added there
 - [x] Plan runs only on `pull_request` where the head repo is this repository, never on forks, inside the `plan` Environment
 - [x] Plan authenticates via OIDC as the plan role, and to Cloudflare with the read-only Zone+Tunnel token
 - [x] Plan text goes to the run summary only. No plan file is uploaded and `TF_LOG` is never set
