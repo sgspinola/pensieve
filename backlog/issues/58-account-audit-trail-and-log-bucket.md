@@ -17,3 +17,4 @@
 - [x] Athena workgroup with results under `athena-results/`, and a CloudTrail Glue table that uses partition projection, so no partitions ever need adding
 - [x] Bootstrap README updated: what's created and the expected resource count at the plan-review step
 - [ ] Applied by the maintainer. An Athena query shows the plan role's `GetObject` on the state file after a CI plan, and `aws cloudtrail validate-logs` passes
+  - Applied on 2026-10-06. `validate-logs` passes (2/2 digest files, 11/11 log files), and test queries against the Glue table return events. Still waiting: the plan-role `GetObject` query, which needs ticket 47's CI plan
