@@ -2,7 +2,7 @@
 
 **What to build:** The stateful and network foundation of production in eu-north-1, in the **prod** root configuration with its state in the bootstrap bucket. It provisions a VPC with subnets in two AZs, a private subnet for the task, a single NAT Gateway, and an S3 gateway endpoint. It also provisions the RDS and task security groups, and RDS PostgreSQL 17 (`db.t4g.micro`, single-AZ, 20→50 GB gp3, IAM auth, RDS-managed master password, 35-day point-in-time recovery, deletion protection, final snapshot, retained backups, encrypted, night backup window). Rounding it out: the `pensieve` and `pensieve-db` ECR repositories, CloudWatch log groups, and AWS Budgets alerts. Spec: `backlog/specs/11-aws-infrastructure.md` (user stories 18, 19, 21–23, 26–31, 45–49; "Network", "Database", "Registry", "Observability and cost").
 
-**Blocked by:** 47 (CI plan on infrastructure PRs)
+**Blocked by:** 47 (CI plan on infrastructure PRs), 58 (audit trail, so prod's first apply is recorded)
 
 **Status:** ready-for-agent
 
