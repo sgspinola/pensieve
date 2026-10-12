@@ -1,0 +1,170 @@
+# Ticket 50, shared in ticket 51: publishes one release image to ECR, the
+# same way for the app (ci.yml's `publish`) and the DB image (db.yml's
+# `publish-db`). The calling job downloads the image tarball and its SBOM,
+# checks out the repository (a local action can't load before checkout), and
+# grants `id-token: write`. Expects a push to main: the ECR push role trusts
+# only refs/heads/main.
+#
+# The bytes are the build job's `docker save` tarball, unchanged: crane
+# pushes it without a daemon or a rebuild, so the image config in ECR (and
+# its digest) is the one the gates scanned and tested. If the image `main`
+# points at already has that config digest, nothing is pushed, so sha-*
+# tags mark real versions (the app image builds reproducibly for this; see
+# .dockerignore). After a failure, re-run only the failed job: it reuses an
+# already-pushed sha-* tag (tags are immutable) and signs again. "Re-run all
+# jobs" rebuilds, and a rebuild that differs can't reuse the tag, so the push
+# fails rather than overwrite it.
+#
+# Signing is keyless: cosign gets a short-lived certificate for the calling
+# workflow's GitHub OIDC identity (Fulcio) and logs it in the public Rekor
+# log (fine, the repository is public). The signature and the CycloneDX
+# SBOM, as a signed attestation, are stored as OCI 1.1 referrers of the
+# image (cosign 3's default; no sha256-*.sig tags), which ECR keeps while
+# the image exists. `main` moves only after both exist, so it always names a
+# signed image. Deploys verify against the workflow that published:
+#   --certificate-identity https://github.com/sgspinola/pensieve/.github/workflows/<ci.yml|db.yml>@refs/heads/main
+#   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+#
+# The repository allows only GitHub-owned actions, so crane and cosign run
+# as digest-pinned images (the `tools` step).
+name: Publish an image to ECR
+description: Push a docker-save tarball to an ECR repository as sha-<7>, sign it, attest its SBOM, and move `main`.
+
+inputs:
+  summary-label:
+    description: Label for the job summary line (the calling job's name).
+    required: true
+  repository:
+    description: ECR repository name, e.g. pensieve or pensieve-db.
+    required: true
+  image:
+    description: Path to the image's `docker save` tarball.
+    required: true
+  sbom:
+    description: Path to the image's CycloneDX SBOM (JSON).
+    required: true
+  role-arn:
+    description: ARN of the ECR push role (the ECR_PUSH_ROLE_ARN repository variable).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The one place the tool images are pinned. Bump tag and digest together
+    # by hand (Dependabot doesn't read images in workflow or action files).
+    - name: Tool images
+      id: tools
+      shell: bash
+      run: |
+        echo "crane=gcr.io/go-containerregistry/crane:v0.22.1@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1" >> "$GITHUB_OUTPUT"
+        echo "cosign=ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8" >> "$GITHUB_OUTPUT"
+    # `shell: bash` runs with -eo pipefail. Only the ECR login token leaves
+    # this step (in the Docker config, which crane and cosign read), not the
+    # role's credentials.
+    - name: Log in to ECR
+      id: ecr
+      shell: bash
+      env:
+        ROLE_ARN: ${{ inputs.role-arn }}
+        REPOSITORY_NAME: ${{ inputs.repository }}
+        AWS_REGION: eu-north-1
+      run: |
+        token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+        echo "::add-mask::$token"
+        creds=$(aws sts assume-role-with-web-identity --role-arn "$ROLE_ARN" \
+          --role-session-name "publish-$GITHUB_RUN_ID" --web-identity-token "$token" \
+          --query Credentials --output json)
+        AWS_ACCESS_KEY_ID=$(jq -r .AccessKeyId <<<"$creds")
+        AWS_SECRET_ACCESS_KEY=$(jq -r .SecretAccessKey <<<"$creds")
+        AWS_SESSION_TOKEN=$(jq -r .SessionToken <<<"$creds")
+        echo "::add-mask::$AWS_SECRET_ACCESS_KEY"
+        echo "::add-mask::$AWS_SESSION_TOKEN"
+        export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+        account=$(echo "$ROLE_ARN" | cut -d: -f5)
+        registry="$account.dkr.ecr.$AWS_REGION.amazonaws.com"
+        aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+        echo "repository=$registry/$REPOSITORY_NAME" >> "$GITHUB_OUTPUT"
+    - name: Push
+      id: push
+      shell: bash
+      env:
+        REPOSITORY: ${{ steps.ecr.outputs.repository }}
+        IMAGE_TAR: ${{ inputs.image }}
+        CRANE_IMAGE: ${{ steps.tools.outputs.crane }}
+      run: |
+        image_dir=$(cd "$(dirname "$IMAGE_TAR")" && pwd)
+        image_file=$(basename "$IMAGE_TAR")
+        crane() {
+          docker run --rm --user "$(id -u):$(id -g)" -e DOCKER_CONFIG=/docker \
+            -v "$HOME/.docker:/docker:ro" -v "$image_dir:/image:ro" "$CRANE_IMAGE" "$@"
+        }
+        # The config blob's digest, from the tarball's manifest.json
+        # ("blobs/sha256/<hex>" or "<hex>.json", by Docker's image store).
+        config=sha256:$(tar -xOf "$IMAGE_TAR" manifest.json \
+          | jq -r '.[0].Config' | sed -E 's#^blobs/sha256/##; s#\.json$##')
+        # A missing tag (the first release, or before a re-run's push) reads as no digest.
+        config_of() { crane manifest "$REPOSITORY:$1" 2>/dev/null | jq -r '.config.digest // empty' || true; }
+        tag="sha-${GITHUB_SHA::7}"
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        if [ "$(config_of main)" = "$config" ]; then
+          echo "unchanged=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        if [ "$(config_of "$tag")" = "$config" ]; then
+          digest=$(crane digest "$REPOSITORY:$tag")
+        else
+          digest=$(crane push "/image/$image_file" "$REPOSITORY:$tag" | cut -d@ -f2)
+        fi
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"
+        echo "image=$REPOSITORY@$digest" >> "$GITHUB_OUTPUT"
+    - name: Sign and attest the SBOM
+      id: sign
+      if: steps.push.outputs.unchanged != 'true'
+      shell: bash
+      env:
+        IMAGE: ${{ steps.push.outputs.image }}
+        SBOM: ${{ inputs.sbom }}
+        COSIGN_IMAGE: ${{ steps.tools.outputs.cosign }}
+      run: |
+        sbom_dir=$(cd "$(dirname "$SBOM")" && pwd)
+        sbom_file=$(basename "$SBOM")
+        # cosign caches Sigstore's trust root under HOME, so give it a
+        # writable one.
+        mkdir -p "$RUNNER_TEMP/cosign-home"
+        cosign() {
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/cosign-home -e DOCKER_CONFIG=/docker \
+            -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+            -v "$RUNNER_TEMP/cosign-home:/cosign-home" -v "$HOME/.docker:/docker:ro" \
+            -v "$sbom_dir:/sbom:ro" "$COSIGN_IMAGE" "$@"
+        }
+        cosign sign --yes "$IMAGE"
+        cosign attest --yes --type cyclonedx --predicate "/sbom/$sbom_file" "$IMAGE"
+    - name: Move main
+      id: move
+      if: steps.push.outputs.unchanged != 'true'
+      shell: bash
+      env:
+        IMAGE: ${{ steps.push.outputs.image }}
+        CRANE_IMAGE: ${{ steps.tools.outputs.crane }}
+      run: |
+        docker run --rm --user "$(id -u):$(id -g)" -e DOCKER_CONFIG=/docker \
+          -v "$HOME/.docker:/docker:ro" "$CRANE_IMAGE" tag "$IMAGE" main
+    - name: Summary
+      if: always()
+      shell: bash
+      env:
+        LABEL: ${{ inputs.summary-label }}
+        REPOSITORY_NAME: ${{ inputs.repository }}
+        UNCHANGED: ${{ steps.push.outputs.unchanged }}
+        MOVED: ${{ steps.move.outcome }}
+        TAG: ${{ steps.push.outputs.tag }}
+        DIGEST: ${{ steps.push.outputs.digest }}
+      run: |
+        if [ "$UNCHANGED" = true ]; then
+          echo "### $LABEL :white_check_mark: \`$REPOSITORY_NAME\` unchanged since the image \`main\` points at; nothing pushed" >> "$GITHUB_STEP_SUMMARY"
+        elif [ "$MOVED" = success ]; then
+          echo "### $LABEL :white_check_mark: \`$REPOSITORY_NAME:$TAG\` (\`$DIGEST\`), signed, SBOM attested, \`main\` moved" >> "$GITHUB_STEP_SUMMARY"
+        else
+          echo "### $LABEL :x: failed${TAG:+ publishing \`$REPOSITORY_NAME:$TAG\`}${DIGEST:+ (\`$DIGEST\` pushed; \`main\` not moved)}" >> "$GITHUB_STEP_SUMMARY"
+        fi
