@@ -11,7 +11,7 @@ Pensieve ships as two container images, both built for `linux/arm64` only, to ma
 flowchart LR
     subgraph Context["Build context (.dockerignore denylist)"]
         Src["src/, package*.json,<br/>next.config.ts, drizzle/meta/_journal.json,<br/>certs/rds-global-bundle.pem"]
-        Env[".env*, other *.pem, .git,<br/>node_modules, .next, …"]
+        Env[".env*, other *.pem, .git,<br/>node_modules, .next,<br/>backlog/, docs/, infra/, db/, e2e/,<br/>.github/, tests, tooling config, …"]
     end
 
     subgraph Builder["builder stage — node:24-trixie-slim"]
@@ -41,6 +41,7 @@ Only the right-hand box ships. The builder stage holds the full toolchain and de
 
 - **Standalone output** (`next.config.ts`). `next build` traces what `server.js` actually imports and copies only those files from `node_modules`. That trace is why the image needs no `npm install`, and it's also why a local `.env` is dangerous: Next copies `.env` and `.env.production` into `.next/standalone`. `.dockerignore` keeps every `.env*` out of the build context, so it never gets the chance.
 - **No `sharp`.** `sharp` is an optional dependency of `next` that the server trace would otherwise pull in, along with its native libvips. Nothing uses `next/image`, so `images.unoptimized` turns off the optimizer and `outputFileTracingExcludes["next-server"]` drops `sharp`/`@img` from the trace.
+- **Same inputs, same image.** The build context leaves out everything the app isn't built from: tickets, docs, infra, CI, the DB image, tests and tooling config. CI also builds with a fixed `SOURCE_DATE_EPOCH`, so the image config carries no build time. A release that changes none of the app's inputs therefore rebuilds from cache into an image with the same config digest, and [publishing](#publishing-to-ecr) skips it. That takes a warm layer cache: on a cache miss, `next build` produces a new build ID and the image differs anyway, so an unchanged release publishes a functionally identical new image.
 - **Bundled healthcheck.** The standalone trace only follows what the server imports, so esbuild bundles `src/ops/healthcheck.ts` into a self-contained CommonJS file. The runtime needs no `tsx`.
 - **Migration journal, not migrations.** The image carries `drizzle/meta/_journal.json`, the list of migration tags this build was made against, and none of the SQL. It's there for the app's startup schema check (spec 13).
 - **RDS CA bundle.** In AWS the app and the DB image's migrator connect with RDS IAM auth instead of a `DATABASE_URL`, which requires TLS. `certs/rds-global-bundle.pem` is AWS's public RDS CA bundle, committed to the repo and copied into both images, and the connection helper verifies the database's certificate against it. It's the one `*.pem` the `.gitignore` and `.dockerignore` let through.
@@ -48,7 +49,7 @@ Only the right-hand box ships. The builder stage holds the full toolchain and de
 
 ## DB image
 
-`db/Dockerfile` is built from the repository root (`docker build -f db/Dockerfile .`) with the same bases and hardening as the app image: a `node:24-trixie-slim` builder stage runs `npm ci`, and the runtime stage is distroless Node `nonroot`, both pinned by multi-arch index digest and kept current by Dependabot.
+`db/Dockerfile` is built from the repository root (`docker build -f db/Dockerfile .`), with its own build-context denylist, `db/Dockerfile.dockerignore` (BuildKit reads it instead of the root `.dockerignore`, which leaves `db/` out). It uses the same bases and hardening as the app image: a `node:24-trixie-slim` builder stage runs `npm ci`, and the runtime stage is distroless Node `nonroot`, both pinned by multi-arch index digest and kept current by Dependabot.
 
 ```mermaid
 flowchart LR
@@ -132,15 +133,25 @@ In CI, the `e2e` job does exactly this against the image the `build` job produce
 
 The CI `build` job builds the app image natively on an arm64 runner, with Docker layers cached in the GitHub Actions cache. Before the image leaves the job, Trivy scans it for embedded secrets: every layer's files and the image config (ENV, labels, build-arg history). Its built-in rules don't cover connection strings, so `trivy-secret.yaml` adds a custom rule for any URL with an embedded password, such as a `DATABASE_URL`.
 
-Any finding fails the job before the upload step, so a leaking image is never downloadable. The results go to GitHub Code Scanning even then. A clean image is uploaded as a `docker save` tarball artifact named `pensieve-image`. It's kept for 1 day as the hand-off to later jobs, or 14 days on a push to `develop`, where it's the deployable artifact.
+Any finding fails the job before the upload step, so a leaking image is never downloadable. The results go to GitHub Code Scanning even then. A clean image is uploaded as a `docker save` tarball artifact named `pensieve-image`. It's kept for 1 day as the hand-off to later jobs (on `main`, including `publish`), or 14 days on a push to `develop`, for inspection.
 
 Scanner false positives go in `trivy-secret.yaml` as allow rules, each with a reason and an expiry in its description. Trivy has no expiry field, so expired rules are reviewed by hand.
 
 A `trivy` job then downloads that artifact and scans it for known vulnerabilities: the Debian packages from the distroless base and the npm packages in the standalone bundle. It fails on any severity, but only when a fixed version exists, so nobody is blocked on an upstream CVE they can't act on. A deliberate exception goes in `.trivyignore` with its reason and an `exp:` date, which Trivy enforces. The vulnerability database comes from the `public.ecr.aws` mirror and is cached for a day. Results go to Code Scanning under their own category, separate from the secret scan. One gap: the distroless base installs Node from a tarball, not as a Debian package, so Trivy can't see the Node runtime's own version. Node stays patched through Dependabot's base-image digest updates.
 
+### Publishing to ECR
+
+On a push to `main` (a release), the `publish` job runs after every other job of `ci.yml` has passed. It never runs on a pull request. It authenticates to AWS over GitHub OIDC as the ECR push role, which only `main` can assume, so no long-lived AWS key exists. `crane` then pushes the `pensieve-image` tarball itself, without a Docker daemon or a rebuild. The image config in ECR, and its digest, are therefore exactly the ones the gates scanned and tested.
+
+- **Tags:** `sha-<first 7 of the commit SHA>`, immutable, is the reference to deploy. `main` moves to each new release; the repository's tag immutability excludes `main` alone. There's no `latest` tag and no semver.
+- **Unchanged releases publish nothing:** if the image `main` points at already has this build's config digest, the job pushes and tags nothing, so `sha-*` tags mark real app versions. If a re-run finds its `sha-*` tag already pushed, it reuses it.
+- **Signing:** keyless cosign. The signing certificate is issued for the workflow's own identity, `https://github.com/sgspinola/pensieve/.github/workflows/ci.yml@refs/heads/main` from `https://token.actions.githubusercontent.com`, and logged in the public Rekor log. The `sbom` job's CycloneDX SBOM goes on as a signed attestation (`cosign attest --type cyclonedx`). Both are stored as OCI 1.1 referrers of the image, not as `sha256-….sig` tags, so ECR keeps them while the image exists and removes them with it. `main` moves only once both exist.
+
+Deploys verify the image with `cosign verify` against that identity and issuer. The SBOM can be checked with `cosign verify-attestation --type cyclonedx`.
+
 ### DB image (`db.yml`)
 
-The DB image has its own workflow, `.github/workflows/db.yml`. It runs on pull requests into `develop`/`main` and pushes to them, but only when a database source changes: `drizzle/`, `db/`, `src/db/`, `certs/`, `drizzle.config.ts`, `.dockerignore` or the workflow itself. App-only changes and dependency bumps skip it. For the same reason its jobs aren't required checks in the rulesets, since a required check whose workflow never ran would block the PR. A failing run still shows on the PR. Dependency bumps are still covered by `ci.yml`'s `unit` job, which runs drizzle-orm's migrator on every change.
+The DB image has its own workflow, `.github/workflows/db.yml`. It runs on pull requests into `develop`/`main` and pushes to them, but only when a database source changes: `drizzle/`, `db/` (including the image's own `db/Dockerfile.dockerignore`), `src/db/`, `certs/`, `drizzle.config.ts` or the workflow itself. App-only changes and dependency bumps skip it. For the same reason its jobs aren't required checks in the rulesets, since a required check whose workflow never ran would block the PR. A failing run still shows on the PR. Dependency bumps are still covered by `ci.yml`'s `unit` job, which runs drizzle-orm's migrator on every change.
 
 - **`db-image`** builds the DB image natively on an arm64 runner and scans it as the app image is scanned: Trivy's secret scan with `trivy-secret.yaml`, then its vulnerability scan with `.trivyignore`. Either finding fails the job, and both go to Code Scanning (`Secrets`, `Container SCA`). The migrator is a single esbuild bundle that Trivy can't see into, so this scan covers the distroless base. The npm packages bundled into it also ship in the app image, where the `trivy` job sees them. A clean image is uploaded as the `pensieve-db-image` artifact for 1 day.
 - **`db-grants`** runs the grants test (`db/bootstrap.test.ts`, see [Roles and grants](/architecture/database-schema#roles-and-grants)) against a `postgres:17-alpine` service container. `ci.yml`'s `unit` job also runs it, with the rest of the suite.

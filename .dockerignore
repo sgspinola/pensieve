@@ -1,5 +1,9 @@
 # Denylist build context for the production image (ticket 29).
 #
+# The DB image has its own copy, db/Dockerfile.dockerignore (ticket 50):
+# keep the security entries below (.env*, *.pem, the CA bundle exception)
+# the same in both.
+#
 # `.env*` is the critical entry: `next build` copies `.env` and
 # `.env.production` into `.next/standalone`, so a local env file left in the
 # context would ship inside the image.
@@ -28,3 +32,30 @@ docs/.vitepress/dist
 .venv
 *.tsbuildinfo
 TODO.md
+
+# Ticket 50: everything the app isn't built from (tickets, docs, infra, CI,
+# the DB image, tests and tooling config), so a release that touches only
+# these builds the identical image and `publish` pushes nothing. With CI's
+# fixed SOURCE_DATE_EPOCH and a warm layer cache, unchanged inputs give an
+# unchanged config digest. A file the build needs must not be listed here;
+# the build fails if one is.
+backlog
+docs
+infra
+db
+e2e
+.github
+**/*.test.ts
+**/*.test.tsx
+*.md
+LICENSE
+.gitignore
+lefthook.yml
+docker-compose.yml
+drizzle.config.ts
+eslint.config.mjs
+playwright.config.ts
+tsconfig.playwright.json
+vitest.config.ts
+trivy-secret.yaml
+.trivyignore

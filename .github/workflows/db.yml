@@ -14,8 +14,9 @@
 # digest-pinned images, a timeout and a short $GITHUB_STEP_SUMMARY.
 name: DB
 
-# The migrations, the migrator and its connection helper, the CA bundle,
-# the build context's ignore file, drizzle-kit's config and this workflow.
+# The migrations, the migrator and its connection helper (and, under db/,
+# the image's own build-context ignore file), the CA bundle, drizzle-kit's
+# config and this workflow. The root .dockerignore is the app image's only.
 on:
   pull_request:
     branches: [develop, main]
@@ -25,7 +26,6 @@ on:
       - "src/db/**"
       - "certs/**"
       - "drizzle.config.ts"
-      - ".dockerignore"
       - ".github/workflows/db.yml"
   push:
     branches: [develop, main]
