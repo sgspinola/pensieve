@@ -5,7 +5,8 @@ export default defineConfig({
   test: {
     environment: "node",
     // Ticket 42: db/ holds the DB image's sources, tested here too.
-    include: ["src/**/*.test.ts", "db/**/*.test.ts"],
+    // Ticket 53: scripts/ holds maintainer shell scripts, run against stubs.
+    include: ["src/**/*.test.ts", "db/**/*.test.ts", "scripts/**/*.test.ts"],
     setupFiles: ["dotenv/config"],
     coverage: {
       provider: "v8",

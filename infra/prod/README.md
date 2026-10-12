@@ -67,3 +67,26 @@ lives in state and in the `pensieve/cloudflared-tunnel-token` secret.
 The instance has deletion protection, and destroying it leaves a final
 snapshot (`pensieve-final`) and the automated backups. Turn protection off in
 code (a reviewed change) before anything can remove it.
+
+## Bootstrapping the database
+
+Ticket 53 (spec 13). The database roles and grants (`db/bootstrap.sql`) are
+created by `scripts/db-bootstrap.sh`, run by hand as the admin user: once
+after the first apply, then again whenever the bootstrap SQL changes (it's
+idempotent). It runs the bootstrap as a one-off ECS task, so the master
+password stays in AWS, and no GitHub role can run that task family or pass
+its role. Needs cosign 3+ and jq; the argument is the `main` commit whose
+release published the DB image (its `sha-<7>` tag in `pensieve-db`):
+
+```sh
+aws login --profile pensieve-admin
+export AWS_PROFILE=pensieve-admin
+scripts/db-bootstrap.sh <db-sha>
+```
+
+It verifies the image's signature (published by `db.yml` on `main`) before
+touching ECS, registers a `pensieve-db-bootstrap` revision from the latest
+one with only the image changed (pinned by digest; a re-run on the same
+image reuses it), runs it in the service's subnet and security group, waits
+for it to stop, and exits non-zero unless the container exited 0. Either way
+it prints the CloudWatch log group and stream.
