@@ -6,3 +6,5 @@
 *.tfstate.*
 crash.log
 *.tfplan
+# Ticket 48: the prod config's variable values (the budget email) stay local.
+*.tfvars

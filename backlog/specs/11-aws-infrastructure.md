@@ -181,7 +181,7 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 - **Good tests verify behaviour visible from outside the module:** what a role can and can't do, what the helper connects with, whether startup is refused. They don't check how those things are implemented.
 - **DB grants, migrator and startup schema check:** their Vitest database-seam tests are defined in spec 13.
 - **Connection helper (pure unit tests):** given `DATABASE_URL`, it yields URL-based config. Otherwise it yields host/user config whose password function calls the injected token signer, a test double, on each invocation, and enables TLS with the CA bundle.
-- **Terraform** isn't unit-tested: `fmt`, `validate`, tflint and the CI plan cover it, and the first real apply proves it.
+- **Terraform:** `fmt`, `validate`, tflint and the CI plan cover it, and the first real apply proves it. (Revised during ticket 48:) each root config may also carry `terraform test` files run against a mocked provider, which check the settings this spec lists (security group rules, RDS backups and protection, ECR tag mutability and lifecycle, log retention, budget thresholds) without credentials. They see only what the configuration sets, not what AWS does with it.
 - **Prior art:** the existing service-layer tests built on `createTestDb` (e.g. the ping service test), and the existing pure-function tests in the lib directory.
 
 ## Out of Scope

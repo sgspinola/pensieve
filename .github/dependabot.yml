@@ -50,10 +50,11 @@ updates:
       docker-minor-patch:
         update-types: ["minor", "patch"]
 
-  # Ticket 33: Terraform providers, once spec 11 adds infra/. Until then
-  # Dependabot reports this directory as missing.
+  # Ticket 33: Terraform providers. Dependabot reads one directory per root
+  # config, not recursively (ticket 48 added infra/prod). Keep the two
+  # configs' AWS provider pins equal.
   - package-ecosystem: "terraform"
-    directory: "/infra"
+    directories: ["/infra/bootstrap", "/infra/prod"]
     schedule:
       interval: "weekly"
     cooldown:
