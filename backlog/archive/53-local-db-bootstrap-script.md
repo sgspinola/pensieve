@@ -4,13 +4,17 @@
 
 **Blocked by:** 42 (bootstrap entrypoint), 49 (bootstrap task definition and role), 51 (signed DB images)
 
-**Status:** in-review: merged; the last item's re-run waits on ticket 62
+**Status:** done
+
+**Completed:** on `feat/53-local-db-bootstrap-script`
+
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/74
 
 - [x] Script verifies the DB image with `cosign verify` (expected `main` identity) before anything else
 - [x] Registers a bootstrap revision on that image and runs it as a one-off task in the service's network config
 - [x] Waits for the task to stop and exits non-zero unless the container exit code is 0, printing the log group and stream either way
 - [x] Confirmed that no GitHub role can run the bootstrap family or pass its roles
-- [ ] Verified by the first real bootstrap (with ticket 56), and a re-run that changes nothing (idempotent). The first real bootstrap succeeded on 2026-10-12 (`sha-3a0ad38`, `pensieve-db-bootstrap:2`, "Bootstrap applied"). The re-run reused revision 2 as designed, but the bootstrap SQL itself failed with `PAM authentication failed for user "pensieve_master"`: the first run had made the master an indirect `rds_iam` member. Not the script's fault; fixed and re-verified in ticket 62
+- [x] Verified by the first real bootstrap (with ticket 56), and a re-run that changes nothing (idempotent). The first real bootstrap succeeded on 2026-10-12 (`sha-3a0ad38`, `pensieve-db-bootstrap:2`, "Bootstrap applied"). The re-run reused revision 2 as designed, but the bootstrap SQL itself failed with `PAM authentication failed for user "pensieve_master"`: the first run had made the master an indirect `rds_iam` member. Not the script's fault; fixed and re-verified in ticket 62. Idempotent re-run: done after ticket 62, on 2026-10-12 with the fixed image `sha-a98a8d4` (release #82): both runs logged in as the master with its password and printed "Bootstrap applied". The first registered `pensieve-db-bootstrap:3` (task `25b55c40a62041d2936e629c7466fc59`); the second reused revision 3 and registered nothing (task `2760ba957b9942c58dec72aa5b82f951`).
 
 **Implementation notes:**
 - `scripts/db-bootstrap.sh <db-sha>` (7–40 hex chars; the image tag is `sha-<first 7>`). It runs as the admin IAM user (`aws login --profile pensieve-admin`), not SSO; the spec's wording predates that. Region is fixed to `eu-north-1`; the account ID is read from `sts get-caller-identity`, never committed. Needs cosign 3+ (signatures are OCI 1.1 referrers) and jq. Usage is in `infra/prod/README.md` ("Bootstrapping the database").
