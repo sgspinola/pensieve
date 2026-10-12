@@ -5,7 +5,14 @@
 # configuration sets, not what AWS would do with it. `terraform test` (from
 # infra/prod, initialised with -backend=false) runs it locally and in CI's
 # iac job.
-mock_provider "aws" {}
+mock_provider "aws" {
+  source = "./tests/mocks/aws"
+}
+
+# Ticket 49: the configuration also holds the Cloudflare side now.
+mock_provider "cloudflare" {
+  source = "./tests/mocks/cloudflare"
+}
 
 variables {
   budget_email = "budget@example.com"

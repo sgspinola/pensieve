@@ -128,6 +128,7 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 **Ingress (Cloudflare):**
 - A Cloudflare Tunnel connects outbound from a `cloudflared` sidecar container in the app's task to the app container over the task's local network. No ALB, no inbound ports, no Origin CA certificate, no Authenticated Origin Pulls.
 - Managed through the Cloudflare Terraform provider: the tunnel, its ingress configuration, and the `pensieve.fyi` apex DNS record pointing at the tunnel. SSL mode is Full (strict) wherever it applies.
+- (Revised during ticket 49:) Terraform generates the tunnel secret and builds the token from it (cloudflared's base64 `{a, t, s}` format), because reading a Cloudflare-generated token back needs Tunnel Write, which the plan's read-only token lacks.
 - The tunnel token lives in Terraform state, which is KMS-encrypted and readable only by the admin and plan roles, and reaches the sidecar as an ECS secret via Secrets Manager. Every resource attribute or output carrying the token must be marked sensitive, and any the provider doesn't mark get wrapped explicitly.
 - **WebAuthn:** RP ID `pensieve.fyi`, origin `https://pensieve.fyi`, set as task environment variables.
 
@@ -138,7 +139,7 @@ CI gains Terraform formatting, validation, linting and a read-only `plan` on pul
 - **Master password:** managed by RDS (`manage_master_user_password`), so it never enters state.
 - **IAM database authentication** is enabled on the instance.
 - **Database roles** (migrator and app, both granted `rds_iam`, which disables password login) are defined in spec 13, together with their grants and the bootstrap that creates them.
-- **Database bootstrap task:** a one-off ECS task definition on the **DB image** (spec 13) with its bootstrap entrypoint. It connects as master using the RDS-managed master secret. Its task role is the only principal allowed to read that secret, and only the maintainer's local `db-bootstrap` script launches it. No GitHub role can run it or pass its roles.
+- **Database bootstrap task:** a one-off ECS task definition on the **DB image** (spec 13) with its bootstrap entrypoint. It connects as master using the RDS-managed master secret. Its task role is the only principal allowed to read that secret, and only the maintainer's local `db-bootstrap` script launches it. (Revised during ticket 49: ECS injects `secrets` with the task's *execution* role, so the bootstrap family's execution role is the one granted the secret, and the family has no task role at all. Neither is passable by any GitHub role. "Only" is identity-based: the admin user can still read it.) No GitHub role can run it or pass its roles.
 - **Migrate task:** a one-off ECS task definition on the DB image, run by the `deploy-db` workflow (spec 13).
 - **IAM policies:** the migrate task's role may `rds-db:connect` only as the migrator user, and the app task's role only as the app user. Neither task holds any database secret.
 
