@@ -1,6 +1,8 @@
-# Ticket 48: the same pins as the bootstrap config, kept equal to it.
-# Terraform 1.16, any patch (CI runs the exact infra/.terraform-version; keep
-# that inside this range), and the AWS provider to a minor version. The
+# Ticket 48: Terraform and the AWS provider pinned as in the bootstrap
+# config, kept equal to it: Terraform 1.16, any patch (CI runs the exact
+# infra/.terraform-version; keep that inside this range), and the AWS provider
+# to a minor version. Ticket 49 adds the Cloudflare and random providers
+# (prod only), pinned the same way. The
 # committed .terraform.lock.hcl pins the exact build, with darwin-arm64 and
 # linux-arm64 checksums (`terraform providers lock -platform=darwin_arm64
 # -platform=linux_arm64`).
@@ -11,6 +13,14 @@ terraform {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 6.67.0"
+    }
+    cloudflare = {
+      source  = "cloudflare/cloudflare"
+      version = "~> 5.27.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.9.0"
     }
   }
 
