@@ -34,6 +34,7 @@ flowchart TB
         E2EMod["e2e communities<br/>smoke.spec.ts, global-setup/teardown"]
         OpsMod["src/ops/healthcheck.ts<br/>(app image HEALTHCHECK; isolated:<br/>reaches /api/health over HTTP, not imports)"]
         DbImgMod["db/migrate.ts, db/bootstrap.ts<br/>(DB image entrypoints;<br/>community: connection.ts)"]
+        StartupMod["src/instrumentation.ts →<br/>db/startup-check.ts, schema-check.ts<br/>(boot-time schema check;<br/>community: connection.ts)"]
     end
 
     ItemsUI --> RoutesGroup
@@ -60,9 +61,12 @@ flowchart TB
     E2EMod -.->|imports for seeding| GetDb
     E2EMod -.->|imports for seeding| AuthMod
     DbImgMod -->|"drizzle migrator"| DrizzleMod
+    StartupMod -.->|"shares src/db/journal.ts"| DbImgMod
 ```
 
 Neither entrypoint is imported by the app. `src/ops/healthcheck.ts` is bundled into the app image as its `HEALTHCHECK`, and `db/migrate.ts` and `db/bootstrap.ts`, which reach Postgres through the shared `src/db/connection.ts` helper, are bundled into the separate DB image as its migrator and roles-and-grants bootstrap (see [Deployable image](/architecture/deployable-image)).
+
+`src/instrumentation.ts` is the one Next.js loads itself, at boot: it dynamically imports `src/db/startup-check.ts`, which runs the [startup schema check](/flows/startup-schema-check) and exits the process when the database and the build don't fit. graphify puts it in the same `connection.ts` community as the DB image's entrypoints, since it connects through the same helper and reads the migration journal through the same `src/db/journal.ts`.
 
 ## What the community structure actually tells you
 

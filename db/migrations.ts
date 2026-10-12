@@ -3,6 +3,7 @@ import path from "node:path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import type postgres from "postgres";
+import { type JournalEntry, readJournal } from "@/db/journal";
 
 /**
  * Ticket 43: the DB image's migrator (spec 13, "Migrator behaviour").
@@ -24,16 +25,8 @@ export interface RunMigrationsOptions {
   allowBreaking: boolean;
 }
 
-interface JournalEntry {
-  tag: string;
-  /** Also the `created_at` drizzle records for the migration when it applies it. */
-  when: number;
-}
-
 export async function runMigrations(sql: postgres.Sql, options: RunMigrationsOptions): Promise<void> {
-  const journal: { entries: JournalEntry[] } = JSON.parse(
-    readFileSync(path.join(options.migrationsFolder, "meta", "_journal.json"), "utf8"),
-  );
+  const journal = readJournal(options.migrationsFolder);
   const isBreaking = (entry: JournalEntry) =>
     readFileSync(path.join(options.migrationsFolder, `${entry.tag}.sql`), "utf8").split("\n", 1)[0].trim() ===
     BREAKING_MARKER;

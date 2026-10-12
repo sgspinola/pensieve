@@ -106,6 +106,11 @@ npm run db:generate   # generates a new migration from the schema diff
 npm run db:migrate    # applies pending migrations to the dev database
 ```
 
+The app checks the schema at boot and refuses to start (exit 1, reason in
+the terminal) while the database is missing one of the repo's migrations,
+so run `db:migrate` after pulling one. See
+[Startup schema check](docs/flows/startup-schema-check.md).
+
 ### Additive or breaking?
 
 Every migration is either **additive** (the app version already running

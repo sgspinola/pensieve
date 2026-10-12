@@ -60,6 +60,7 @@ export default withMermaid({
           { text: "Flashcard Study Session", link: "/flows/flashcard-study-session" },
           { text: "Wiki Article Management", link: "/flows/wiki-article-management" },
           { text: "Health Check", link: "/flows/health-check" },
+          { text: "Startup Schema Check", link: "/flows/startup-schema-check" },
         ],
       },
     ],
