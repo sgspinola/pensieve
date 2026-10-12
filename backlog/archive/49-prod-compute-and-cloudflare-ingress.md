@@ -4,7 +4,9 @@
 
 **Blocked by:** 48 (network, RDS, ECR, log groups)
 
-**Status:** in-review
+**Status:** done
+
+**Completed:** on `feat/49-prod-compute-and-cloudflare-ingress`
 
 **Pull Request:** https://github.com/sgspinola/pensieve/pull/71
 
@@ -16,7 +18,7 @@
 - [x] Manual: the maintainer creates the `prod-app` and `prod-db` Environments (required reviewer, `main` only). Verified with `gh api`: both require the maintainer's review and allow only the `main` branch. CI's plan token already has the read permissions it needs
 - [x] Manual: the maintainer provides a Cloudflare API token for local applies (permissions in `infra/prod/README.md`)
 - [x] CI plan shows no secret values; applied by the maintainer with the service at 0 tasks. Applied (22 added, nothing changed or destroyed). The service is `ACTIVE` at 0 desired and 0 running on `pensieve-app:1`. PR #71's `iac` plan ran with the read-only token and reported no changes
-- [ ] First successful app→RDS connection (with the first deploy), which also proves ticket 48's in-VPC reachability: then tick 48's last item, mark it `done` and archive it in this ticket's PR
+- [x] First successful app→RDS connection (with the first deploy), which also proves ticket 48's in-VPC reachability: then tick 48's last item, mark it `done` and archive it in this ticket's PR
 
 **Implementation notes:**
 - New files in `infra/prod`: `compute.tf` (cluster, service, three task definitions), `iam.tf` (task and execution roles), `tunnel.tf` (Cloudflare and the token secret). Shared names in `names.tf` match `infra/bootstrap/names.tf`. The db-bootstrap family and its role (`pensieve-db-bootstrap*`) are deliberately absent there.
@@ -26,3 +28,5 @@
 - The first task-definition revisions use each repository's moving `main` tag. That's safe because the service starts at 0 tasks, and every deploy registers a `sha-*` revision. Later Terraform changes to a task definition (env vars, roles) create a new revision that the service ignores. So the deploy workflows (52, 54) must register from the *family's latest* revision, not the service's current one, to pick those changes up.
 - `cloudflared` runs `cloudflare/cloudflared:2026.10.0`, pinned by index digest and pulled from Docker Hub through the NAT. It starts only once the app container is `HEALTHY`.
 - The app container sets `HOSTNAME=0.0.0.0` explicitly (the image does too), so Next.js always listens on localhost for the sidecar and the health check.
+
+**First deploy (2026-10-12):** `deploy-app` with `sha-3a0ad38` rolled the service from `pensieve-app:1` at 0 tasks to `pensieve-app:2` at 1: rollout `COMPLETED`, no failed tasks. The app logged in to RDS as `pensieve_app` with an IAM token and passed the startup schema check. `cloudflared` started once the app was healthy and registered QUIC tunnel connections (`arn02`, `arn08`). Through Cloudflare, `https://pensieve.fyi/` redirects to `/login` and `/api/health` answers `200 {"status":"up"}`. Ticket 48 is archived alongside.

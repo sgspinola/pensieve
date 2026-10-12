@@ -4,12 +4,16 @@
 
 **Blocked by:** 41 (DB image and `db.yml`), 50 (app publish mechanics to mirror/share)
 
-**Status:** in-review: implemented on `feat/51-db-image-publish`; item 4 waits on the first real release that touches a DB input (and PR merge)
+**Status:** done
+
+**Completed:** on `feat/51-db-image-publish`
+
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/70
 
 - [x] `publish-db` runs on every push to `main` (never on PRs), with `needs` listing every `db.yml` job, and pushes the already-scanned image without rebuilding
 - [x] Tagged `sha-<short sha>` in `pensieve-db`, signed keylessly, with the signature and the DB image's own SBOM attached as OCI 1.1 referrers
 - [x] Publish steps shared with ticket 50 where practical (e.g. a local composite action) rather than duplicated
-- [ ] Verified on the first release: tag present, `cosign verify` succeeds, SBOM listed
+- [x] Verified on the first release: tag present, `cosign verify` succeeds, SBOM listed. First release (2026-10-12, merge `3a0ad38`, PR #77): `publish-db` pushed `pensieve-db:sha-3a0ad38` (and `main`). `cosign verify` and `cosign verify-attestation --type cyclonedx` pass against `db.yml@refs/heads/main` (41 components). `cosign tree` lists the signature and the SBOM as OCI referrers, with no `sha256-*.sig` tags. The deploy-db role verified it too, in the first `deploy-db` run
 
 **Implementation notes:**
 
