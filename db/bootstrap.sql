@@ -30,7 +30,8 @@ $$;
 GRANT rds_iam TO pensieve_migrator, pensieve_app;
 
 -- Lets the master act for the migrator below: hand it schemas, and set the
--- default privileges on what it will create.
+-- default privileges on what it will create. Only for this transaction: it's
+-- revoked at the end (ticket 62).
 GRANT pensieve_migrator TO CURRENT_USER;
 
 -- The migrator runs `CREATE SCHEMA IF NOT EXISTS` for drizzle and
@@ -62,3 +63,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE pensieve_migrator IN SCHEMA drizzle
   GRANT SELECT ON TABLES TO pensieve_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE pensieve_migrator IN SCHEMA pensieve_meta
   GRANT SELECT ON TABLES TO pensieve_app;
+
+-- Ticket 62: give up the membership granted above, in the same transaction,
+-- so the master never holds the migrator's privileges after the bootstrap.
+-- The migrator is an rds_iam member, and RDS turns off password login for
+-- any role that holds rds_iam's privileges, the master included: kept, this
+-- grant locked the master out of the next bootstrap. What it was needed for
+-- outlives it (schema ownership, default privileges). Creating the roles
+-- also gave the master an admin-only membership (ADMIN, no INHERIT, no SET),
+-- which only the RDS superuser could remove; it carries no privileges.
+REVOKE pensieve_migrator FROM CURRENT_USER;

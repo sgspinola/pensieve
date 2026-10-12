@@ -120,6 +120,8 @@ erDiagram
 
 In AWS, nothing connects as the RDS master user except the one-off bootstrap. `db/bootstrap.sql` creates two least-privilege roles, and the DB image's `bootstrap.cjs` runs it as master (see [DB image](/architecture/deployable-image#db-image)). Both roles are granted `rds_iam`, so they log in only with short-lived IAM tokens, never a password.
 
+The master needs to act as the migrator while the bootstrap runs: to hand it the `drizzle` and `pensieve_meta` schemas, and to set the default privileges on what it will create. So the bootstrap grants itself `pensieve_migrator` and revokes it again before committing, in the same transaction. Keeping the membership would make the master an indirect `rds_iam` member, and RDS refuses the password of any role that holds `rds_iam`'s privileges. The first prod bootstrap did keep it, which locked the master out of its next login (ticket 62). Creating the roles also leaves the master an admin-only membership (no `INHERIT`, no `SET`), which Postgres 16+ grants automatically and only the RDS superuser could remove. It carries no privileges.
+
 | | `pensieve_migrator` | `pensieve_app` |
 | --- | --- | --- |
 | `public` (the tables above) | owns every table, sequence and type the migrations create | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on tables, `USAGE` on sequences; no DDL |

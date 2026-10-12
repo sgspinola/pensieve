@@ -15,7 +15,9 @@ import { runMigrations } from "./migrations";
  * RDS's master user isn't a superuser: it's a CREATEROLE user that owns the
  * database. The bootstrap runs as such a role here, so a grant only a
  * superuser could make fails in the test, not in production. Vanilla
- * Postgres has no `rds_iam`, so a stub stands in for it.
+ * Postgres has no `rds_iam`, so a stub stands in for it. Like RDS's master,
+ * the test master may grant it but doesn't hold its privileges: RDS turns
+ * off password login for any role that does (ticket 62).
  */
 
 const BOOTSTRAP_SQL = readFileSync(path.join(process.cwd(), "db", "bootstrap.sql"), "utf8");
@@ -51,7 +53,7 @@ beforeAll(async () => {
   await dropRoles();
   await sql.unsafe("CREATE ROLE rds_iam");
   await sql.unsafe(`CREATE ROLE ${MASTER} CREATEROLE`);
-  await sql.unsafe(`GRANT rds_iam TO ${MASTER} WITH ADMIN OPTION`);
+  await sql.unsafe(`GRANT rds_iam TO ${MASTER} WITH ADMIN OPTION, INHERIT FALSE, SET FALSE`);
   const [{ name }] = await sql<{ name: string }[]>`select current_database() as name`;
   await sql.unsafe(`ALTER DATABASE "${name}" OWNER TO ${MASTER}`);
 
@@ -137,6 +139,35 @@ describe("the app role, after bootstrap and migrations", () => {
     await expect(
       asRole("pensieve_app", () => sql`insert into pensieve_meta.probe values ('from the app')`),
     ).rejects.toMatchObject({ code: "42501" });
+  });
+});
+
+describe("the master, after bootstrap (ticket 62)", () => {
+  it("doesn't inherit rds_iam, so RDS keeps its password login", async () => {
+    const [{ inherits }] = await sql<{ inherits: boolean }[]>`
+      select pg_has_role(${MASTER}, 'rds_iam', 'USAGE') as inherits`;
+    expect(inherits).toBe(false);
+  });
+
+  it("keeps only the admin-only membership in the migrator that creating it gave", async () => {
+    const memberships = await sql`
+      select a.admin_option, a.inherit_option, a.set_option
+      from pg_auth_members a
+      join pg_roles r on r.oid = a.roleid
+      join pg_roles u on u.oid = a.member
+      where r.rolname = 'pensieve_migrator' and u.rolname = ${MASTER}`;
+    expect(memberships).toEqual([{ admin_option: true, inherit_option: false, set_option: false }]);
+  });
+
+  it("gives up the membership an earlier bootstrap left it, as prod's first run did", async () => {
+    await asRole(MASTER, () => sql.unsafe("GRANT pensieve_migrator TO CURRENT_USER"));
+    const [{ before }] = await sql<{ before: boolean }[]>`select pg_has_role(${MASTER}, 'rds_iam', 'USAGE') as before`;
+    expect(before).toBe(true);
+
+    await bootstrap();
+
+    const [{ after }] = await sql<{ after: boolean }[]>`select pg_has_role(${MASTER}, 'rds_iam', 'USAGE') as after`;
+    expect(after).toBe(false);
   });
 });
 
