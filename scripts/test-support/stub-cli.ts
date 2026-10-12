@@ -75,6 +75,9 @@ export function createStubCli() {
         STUB_LOG: path.join(dir, "calls.log"),
         STUB_REPLIES: path.join(dir, "replies.json"),
         STUB_STATE: path.join(dir, "state.json"),
+        // scripts/lib/deploy.sh polls the service: no sleeping, and few polls.
+        DEPLOY_WAIT_SECONDS: "0",
+        DEPLOY_WAIT_ATTEMPTS: "3",
         ...env,
       },
     });

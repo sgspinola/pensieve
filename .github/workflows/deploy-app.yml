@@ -1,0 +1,55 @@
+# Ticket 52: an app release (spec 12, "`deploy-app` workflow"). Dispatched
+# by hand from main, it waits for the maintainer's approval (the `prod-app`
+# Environment: required reviewer, main only), then runs
+# scripts/deploy-app.sh as the deploy-app role, which can roll the service
+# onto a new app revision and nothing else: no database, no migrate or
+# bootstrap task (infra/bootstrap/iam-deploy-app.tf).
+#
+# Dispatch with the `main` commit whose release published the app image.
+# For an app that needs a schema change, deploy the database first
+# (deploy-db): the startup schema check (ticket 44) refuses to start an app
+# whose migration isn't applied, and the circuit breaker rolls it back.
+#
+# Same baseline as ci.yml: least-privilege permissions, actions pinned to a
+# full commit SHA, checkout without persisted credentials, tools the runner
+# doesn't ship run as digest-pinned images (cosign, in .github/actions/deploy,
+# shared with deploy-db.yml), a timeout and a short $GITHUB_STEP_SUMMARY.
+name: deploy-app
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_sha:
+        description: "App image to deploy: the main commit whose release published it (sha-<7> in pensieve)"
+        required: true
+        type: string
+
+permissions: {}
+
+# One prod deploy at a time, app or database (deploy-db shares the group),
+# and never cancelled halfway through a rollout.
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-app:
+    name: deploy-app
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    # A rollout takes minutes; ECS's stability wait gives up after ten, and a
+    # circuit-breaker rollback adds a few more.
+    timeout-minutes: 30
+    environment: prod-app
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/deploy
+        with:
+          role-arn: ${{ vars.DEPLOY_APP_ROLE_ARN }}
+          script: deploy-app.sh
+          sha: ${{ inputs.app_sha }}

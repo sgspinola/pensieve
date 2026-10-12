@@ -110,7 +110,6 @@ function happyReplies({ desiredCount = 1, migrateExit = 0, finalTd = RECORDED_AP
       service(finalTd, desiredCount),
     ],
     "aws ecs update-service": json({ service: {} }),
-    "aws ecs wait services-stable": {},
     "aws rds create-db-snapshot": json({ DBSnapshot: {} }),
     "aws rds wait db-snapshot-available": {},
     "aws ecs describe-task-definition pensieve-migrate": json({ taskDefinition: MIGRATE_TD }),
@@ -208,9 +207,10 @@ describe("deploy-db.sh", () => {
 
     expect(status).toBe(0);
     expect(updates(calls)[0]).toEqual({ taskDefinition: RECORDED_APP_TD, desiredCount: "0" });
-    const stable = index(calls, "aws", "ecs", "wait", "services-stable");
-    expect(stable).toBeGreaterThan(index(calls, "aws", "ecs", "update-service"));
-    expect(index(calls, "aws", "rds", "create-db-snapshot")).toBeGreaterThan(stable);
+    const update = index(calls, "aws", "ecs", "update-service");
+    const settled = calls.findIndex((c, i) => i > update && c.args[1] === "describe-services");
+    expect(settled).toBeGreaterThan(update);
+    expect(index(calls, "aws", "rds", "create-db-snapshot")).toBeGreaterThan(settled);
   });
 
   it("takes a named pre-deploy snapshot and waits for it before migrating", () => {
@@ -335,7 +335,9 @@ describe("deploy-db.sh", () => {
     expect(flag(list, "--db-instance-identifier")).toBe("pensieve");
     const deleted = named(calls, "aws", "rds", "delete-db-snapshot").map((c) => flag(c, "--db-snapshot-identifier"));
     expect(deleted).toEqual(["pensieve-predeploy-0000000-20261001000000", "pensieve-predeploy-1111111-20261005000000"]);
-    expect(index(calls, "aws", "rds", "delete-db-snapshot")).toBeGreaterThan(index(calls, "aws", "ecs", "wait", "services-stable"));
+    expect(index(calls, "aws", "rds", "delete-db-snapshot")).toBeGreaterThan(
+      calls.findLastIndex((c) => c.args[1] === "update-service"),
+    );
   });
 
   it("on a failed or refused migration, restores the recorded revision and count and keeps the snapshots", () => {

@@ -1,6 +1,6 @@
 # shellcheck shell=bash
-# Tickets 53 and 54: what the deploy scripts share (scripts/db-bootstrap.sh,
-# scripts/deploy-db.sh; deploy-app, ticket 52, will too). Sourced, not run.
+# Tickets 52-54: what the deploy scripts share (scripts/db-bootstrap.sh,
+# scripts/deploy-db.sh, scripts/deploy-app.sh). Sourced, not run.
 # Callers `set -euo pipefail` first. Needs aws, cosign 3 and jq on PATH, and
 # AWS credentials: the admin user's locally, a deploy role's in CI.
 #
@@ -168,20 +168,39 @@ run_one_off() {
 }
 
 # Usage: update_service <task definition ARN> <desired count>
-# Points the service at the revision with that count and waits until it's
-# stable on it. Returns non-zero if the update fails, the service doesn't
-# stabilise, or it settles on anything else: another revision (the circuit
-# breaker rolled it back) or another number of running tasks. The task
-# definition is always passed: the deploy roles may only update the service
-# with one (infra/bootstrap/iam-deploy-*.tf).
+# Points the service at the revision with that count and waits until its
+# rollout has completed: the only deployment, at that many running tasks.
+# The task definition is always passed: the deploy roles may only update the
+# service with one (infra/bootstrap/iam-deploy-*.tf).
+# Returns non-zero if the update fails, the circuit breaker fails the
+# rollout (or another deployment replaced it), or it doesn't finish within
+# DEPLOY_WAIT_ATTEMPTS polls DEPLOY_WAIT_SECONDS apart (default 80 x 15s, 20
+# minutes: the breaker needs a few failed tasks, minutes each, before it
+# gives up, more than the services-stable waiter's 10).
 update_service() {
-  local task_definition=$1 count=$2
+  local task_definition=$1 count=$2 attempt=0 outcome
+  local attempts=${DEPLOY_WAIT_ATTEMPTS:-80} pause=${DEPLOY_WAIT_SECONDS:-15}
   aws ecs update-service --cluster "$cluster" --service "$service" \
     --task-definition "$task_definition" --desired-count "$count" --output json >/dev/null || return 1
-  aws ecs wait services-stable --cluster "$cluster" --services "$service" || return 1
-  service_state | jq -e --arg td "$task_definition" --argjson n "$count" '
-    .desiredCount == $n and .runningCount == $n
-      and ([.deployments[] | select(.status == "PRIMARY")][0] | .taskDefinition == $td and .rolloutState == "COMPLETED")
-  ' >/dev/null
+  while ((attempt < attempts)); do
+    attempt=$((attempt + 1))
+    outcome=$(service_state | jq -r --arg td "$task_definition" --argjson n "$count" '
+      ([.deployments[] | select(.taskDefinition == $td)][0]) as $d
+        | if $d == null or $d.status != "PRIMARY" then "replaced"
+          elif $d.rolloutState == "FAILED" then "failed"
+          elif $d.rolloutState == "COMPLETED" and (.deployments | length) == 1
+            and .desiredCount == $n and .runningCount == $n then "done"
+          else "waiting" end') || return 1
+    case $outcome in
+      done) return 0 ;;
+      failed | replaced)
+        echo "the circuit breaker failed the rollout of ${task_definition##*/} ($outcome) and rolls the service back" >&2
+        return 1
+        ;;
+    esac
+    sleep "$pause"
+  done
+  echo "gave up waiting for the rollout of ${task_definition##*/} to complete" >&2
+  return 1
 }
 

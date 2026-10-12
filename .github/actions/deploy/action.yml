@@ -1,0 +1,83 @@
+# Tickets 52 and 54: runs one of the deploy scripts (scripts/deploy-app.sh,
+# scripts/deploy-db.sh) as a deploy role, for deploy-app.yml and
+# deploy-db.yml. The calling job checks out the repository (a local action
+# can't load before checkout), runs in its approval-gated Environment and
+# grants `id-token: write`; the role trusts only that Environment.
+#
+# GitHub's OIDC token lives about five minutes, so the role is assumed once,
+# for an hour (the roles' maximum session), rather than have each aws call
+# re-read a token file. The credentials stay inside this one step.
+#
+# The repository allows only GitHub-owned actions, so cosign runs as its
+# pinned image behind a `cosign` on PATH. The scripts point DOCKER_CONFIG at
+# their scratch directory, where cosign logs in to ECR: that directory is
+# mounted for cosign, but the docker CLI running it keeps its own config.
+# cosign caches Sigstore's trust root under HOME, so it gets a writable one.
+# The AWS CLI and jq are the runner's.
+name: Run a deploy script
+description: Assume a deploy role with the job's OIDC token and run scripts/<script> <sha> [<app-sha>].
+
+inputs:
+  role-arn:
+    description: ARN of the deploy role (the Environment's DEPLOY_*_ROLE_ARN variable).
+    required: true
+  script:
+    description: The script under scripts/, e.g. deploy-app.sh.
+    required: true
+  sha:
+    description: The script's first argument, a commit SHA (the script rejects anything else).
+    required: true
+  app-sha:
+    description: deploy-db's optional second argument, the app version for a breaking migration.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Deploy
+      shell: bash
+      env:
+        ROLE_ARN: ${{ inputs.role-arn }}
+        SCRIPT: ${{ inputs.script }}
+        SHA: ${{ inputs.sha }}
+        APP_SHA: ${{ inputs.app-sha }}
+        # Bump with .github/actions/publish-image's (tag and digest together).
+        COSIGN_IMAGE: ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8
+      run: |
+        case "$SCRIPT" in
+          deploy-app.sh | deploy-db.sh) ;;
+          *) echo "::error::unknown deploy script $SCRIPT"; exit 1 ;;
+        esac
+
+        token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+        echo "::add-mask::$token"
+        creds=$(aws sts assume-role-with-web-identity --role-arn "$ROLE_ARN" \
+          --role-session-name "${SCRIPT%.sh}-$GITHUB_RUN_ID" --web-identity-token "$token" \
+          --duration-seconds 3600 --query Credentials --output json)
+        AWS_ACCESS_KEY_ID=$(jq -r .AccessKeyId <<<"$creds")
+        AWS_SECRET_ACCESS_KEY=$(jq -r .SecretAccessKey <<<"$creds")
+        AWS_SESSION_TOKEN=$(jq -r .SessionToken <<<"$creds")
+        echo "::add-mask::$AWS_SECRET_ACCESS_KEY"
+        echo "::add-mask::$AWS_SESSION_TOKEN"
+        export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+
+        mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cosign-home"
+        cat >"$RUNNER_TEMP/bin/cosign" <<'SHIM'
+        #!/usr/bin/env bash
+        config=$DOCKER_CONFIG
+        mkdir -p "$config"
+        exec env -u DOCKER_CONFIG docker run --rm -i --user "$(id -u):$(id -g)" \
+          -e HOME=/cosign-home -e DOCKER_CONFIG=/docker \
+          -v "$RUNNER_TEMP/cosign-home:/cosign-home" -v "$config:/docker" "$COSIGN_IMAGE" "$@"
+        SHIM
+        chmod +x "$RUNNER_TEMP/bin/cosign"
+        export PATH="$RUNNER_TEMP/bin:$PATH"
+
+        # The inputs reach the script as one argument each, never as code.
+        if [ -n "$APP_SHA" ]; then
+          "$GITHUB_WORKSPACE/scripts/$SCRIPT" "$SHA" "$APP_SHA"
+        else
+          "$GITHUB_WORKSPACE/scripts/$SCRIPT" "$SHA"
+        fi
