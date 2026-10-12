@@ -6,8 +6,9 @@
 # That's also why its jobs aren't required checks in the develop/main
 # rulesets: a required check whose workflow never triggered would block the
 # PR forever. A failing run still shows on the PR; it just doesn't block the
-# merge on its own. Dependency bumps don't trigger it: ci.yml's unit job
-# runs drizzle-orm's migrator on every change anyway.
+# merge on its own. Dependency bumps do trigger it (ticket 51): the DB image
+# bundles npm packages (postgres, drizzle-orm, the RDS signer), and a
+# release that bumps one must republish the image.
 #
 # Same baseline as ci.yml: least-privilege permissions, actions pinned to a
 # full commit SHA, checkout without persisted credentials, scanners run as
@@ -16,7 +17,9 @@ name: DB
 
 # The migrations, the migrator and its connection helper (and, under db/,
 # the image's own build-context ignore file), the CA bundle, drizzle-kit's
-# config and this workflow. The root .dockerignore is the app image's only.
+# config, what the image's bundles are built from (the dependencies and
+# tsconfig.json's path alias) and this workflow. The root .dockerignore is
+# the app image's only.
 on:
   pull_request:
     branches: [develop, main]
@@ -26,6 +29,9 @@ on:
       - "src/db/**"
       - "certs/**"
       - "drizzle.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
       - ".github/workflows/db.yml"
   push:
     branches: [develop, main]
@@ -52,7 +58,8 @@ jobs:
   # The migrator is one esbuild bundle, which Trivy can't see into, so the
   # vulnerability scan covers the distroless base's Debian packages. The npm
   # packages bundled into it (drizzle-orm, postgres, the RDS signer) also ship
-  # in the app image, whose scan in ci.yml's trivy job does see them.
+  # in the app image, whose scan in ci.yml's trivy job does see them. It
+  # also writes the image's SBOM (ticket 51), which publish-db attests.
   db-image:
     name: db-image
     runs-on: ubuntu-24.04-arm
@@ -101,21 +108,91 @@ jobs:
         with:
           sarif_file: trivy-vuln.sarif
           category: Container SCA
-      # Only reached when both scans passed: the 1-day hand-off to db-apply.
+      # Ticket 51: the DB image's CycloneDX SBOM, which publish-db attests.
+      # The image has no node_modules, so it lists the npm packages esbuild
+      # bundled into the migrator and bootstrap (Trivy can't see into a
+      # bundle), the image's Debian packages (which Trivy can) and the Node
+      # runtime (a tarball install neither sees; the image's entrypoint is
+      # `node`, so it reports its own version). The
+      # bundle is rebuilt here only for esbuild's metafile; the lockfile pins
+      # the versions the image's own `npm ci` installed. Every bundled
+      # package must be in `npm sbom`'s output, or the step fails.
+      - uses: ./.github/actions/setup-node-deps
+      - name: SBOM
+        id: sbom
+        run: |
+          # A package.json that fails to read must fail the step, not drop
+          # the package from the list (the check below only sees the list).
+          set -o pipefail
+          npm run build:db -- --metafile="$RUNNER_TEMP/db-meta.json" --log-level=warning
+          # Each bundled file's package root (its innermost node_modules/<name>),
+          # then that package's name@version, which is npm sbom's bom-ref.
+          jq -r '.inputs | keys[]' "$RUNNER_TEMP/db-meta.json" \
+            | sed -nE 's#^(.*node_modules/(@[^/]+/)?[^/]+)/.*#\1#p' | sort -u \
+            | while read -r dir; do jq -r '"\(.name)@\(.version)"' "$dir/package.json" || exit 1; done \
+            | sort -u > "$RUNNER_TEMP/db-bundled.txt"
+          npm sbom --sbom-format cyclonedx --omit dev > "$RUNNER_TEMP/npm.cdx.json"
+          docker run --rm -v "$RUNNER_TEMP/image:/scan:ro" -v "$RUNNER_TEMP:/out" "$TRIVY_IMAGE" \
+            image --input /scan/pensieve-db-image.tar --pkg-types os \
+            --format cyclonedx --output /out/os.cdx.json
+          node_version=$(docker run --rm pensieve-db:ci --version | sed 's/^v//')
+          mkdir -p "$RUNNER_TEMP/sbom"
+          # Trivy's document (describing the image, which it names after the
+          # tarball's path), plus Node and the bundled npm components with
+          # their dependency edges among themselves. The image's own entry
+          # gains Node and the npm packages the project depends on directly.
+          jq -n --rawfile bundled "$RUNNER_TEMP/db-bundled.txt" --arg node "$node_version" \
+            --slurpfile npm "$RUNNER_TEMP/npm.cdx.json" --slurpfile os "$RUNNER_TEMP/os.cdx.json" '
+            ($bundled | split("\n") | map(select(. != ""))) as $want
+            | [$npm[0].components[] | select(."bom-ref" as $r | $want | index($r))] as $found
+            | if ($found | length) != ($want | length) then
+                error("bundled but missing from npm sbom: \($want - [$found[]."bom-ref"] | join(", "))")
+              else . end
+            | {"bom-ref": "pkg:generic/node@\($node)", type: "platform", name: "node",
+               version: $node, purl: "pkg:generic/node@\($node)"} as $runtime
+            | ([$npm[0].dependencies[] | select(.ref == $npm[0].metadata.component."bom-ref")
+                | .dependsOn[] | select(. as $d | $want | index($d))]) as $direct
+            | $os[0]
+            | .metadata.component.name = "pensieve-db"
+            | .metadata.component."bom-ref" as $root
+            | .components += [$runtime] + $found
+            | .dependencies |= map(if .ref == $root then .dependsOn += [$runtime."bom-ref"] + $direct else . end)
+            | .dependencies += [$npm[0].dependencies[]
+                | select(.ref as $r | $want | index($r))
+                | .dependsOn |= map(select(. as $d | $want | index($d)))]
+            ' > "$RUNNER_TEMP/sbom/sbom.cdx.json"
+          {
+            echo "node=$node_version"
+            echo "npm=$(wc -l < "$RUNNER_TEMP/db-bundled.txt" | tr -d ' ')"
+            echo "os=$(jq '[.components[] | select(.purl // "" | startswith("pkg:deb/"))] | length' "$RUNNER_TEMP/sbom/sbom.cdx.json")"
+          } >> "$GITHUB_OUTPUT"
+      # Only reached when both scans passed: the 1-day hand-off to db-apply
+      # and, on main, publish-db.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pensieve-db-image
           path: ${{ runner.temp }}/image/pensieve-db-image.tar
           retention-days: 1
           if-no-files-found: error
+      # Kept 90 days, like the app's SBOM.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pensieve-db-sbom
+          path: ${{ runner.temp }}/sbom/sbom.cdx.json
+          retention-days: 90
+          if-no-files-found: error
       - name: Summary
         if: always()
+        env:
+          SBOM_NODE: ${{ steps.sbom.outputs.node }}
+          SBOM_NPM: ${{ steps.sbom.outputs.npm }}
+          SBOM_OS: ${{ steps.sbom.outputs.os }}
         run: |
           count() { [ -s "$1" ] && jq '[.runs[].results[]] | length' "$1" || echo "no SARIF"; }
           secrets=$(count trivy-secret.sarif)
           vulns=$(count trivy-vuln.sarif)
           icon=$([ "$secrets" = 0 ] && [ "$vulns" = 0 ] && echo ":white_check_mark:" || echo ":x:")
-          echo "### db-image $icon linux/arm64 DB image; Trivy secret findings: $secrets, fixable vulnerabilities: $vulns" >> "$GITHUB_STEP_SUMMARY"
+          echo "### db-image $icon linux/arm64 DB image; Trivy secret findings: $secrets, fixable vulnerabilities: $vulns; SBOM: Node ${SBOM_NODE:-?}, ${SBOM_NPM:-?} bundled npm + ${SBOM_OS:-?} Debian packages" >> "$GITHUB_STEP_SUMMARY"
 
   # Every migration applied from scratch by the built image's migrator, the
   # way production runs it, against a fresh Postgres. Drizzle's bookkeeping
@@ -224,3 +301,49 @@ jobs:
           else
             echo "### db-grants :x: Vitest did not run" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # Ticket 51 (spec 13, "publish-db"): a push to main that changed a database
+  # source (this workflow's path filter) publishes the DB image to its own
+  # `pensieve-db` repository, through the publish-image action shared with
+  # ci.yml's `publish` (its header has the mechanics). The DB image is
+  # released independently of the app, on releases that touch its inputs
+  # (the DB image isn't built reproducibly, so each such release publishes,
+  # even one that only edits this workflow). If a release's run fails and
+  # isn't re-run, the next release that touches no DB input won't publish
+  # it: re-run the failed job. It needs
+  # every job above, so nothing unscanned or untested is published; add any
+  # new job (e.g. ticket 45's db-drift) to `needs` too. deploy-db verifies
+  # the signature against
+  # https://github.com/sgspinola/pensieve/.github/workflows/db.yml@refs/heads/main
+  # (issuer https://token.actions.githubusercontent.com).
+  publish-db:
+    name: publish-db
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [db-image, db-apply, db-grants]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # OIDC: the ECR push role (which trusts only refs/heads/main) and
+      # cosign's signing certificate.
+      id-token: write
+    steps:
+      # Only to load the local action.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pensieve-db-image
+          path: ${{ runner.temp }}/image
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pensieve-db-sbom
+          path: ${{ runner.temp }}/sbom
+      - uses: ./.github/actions/publish-image
+        with:
+          summary-label: publish-db
+          repository: pensieve-db
+          image: ${{ runner.temp }}/image/pensieve-db-image.tar
+          sbom: ${{ runner.temp }}/sbom/sbom.cdx.json
+          role-arn: ${{ vars.ECR_PUSH_ROLE_ARN }}
