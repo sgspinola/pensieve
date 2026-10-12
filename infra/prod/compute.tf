@@ -173,7 +173,9 @@ resource "aws_ecs_task_definition" "migrate" {
 }
 
 # Logs in as the RDS master user with the RDS-managed secret's username and
-# password (ticket 42), so it has no task role: it needs no AWS access.
+# password (ticket 42), so it needs no AWS access. Ticket 62, temporarily: a
+# task role and BOOTSTRAP_AUTH=iam make it log in as the master with an IAM
+# token instead, for one recovery run (iam.tf).
 resource "aws_ecs_task_definition" "db_bootstrap" {
   family                   = local.task_families.db_bootstrap
   requires_compatibilities = ["FARGATE"]
@@ -181,6 +183,7 @@ resource "aws_ecs_task_definition" "db_bootstrap" {
   cpu                      = local.task_size.cpu
   memory                   = local.task_size.memory
   execution_role_arn       = aws_iam_role.db_bootstrap_execution.arn
+  task_role_arn            = aws_iam_role.db_bootstrap_task.arn
 
   runtime_platform {
     operating_system_family = local.task_size.operating_system_family
@@ -188,11 +191,13 @@ resource "aws_ecs_task_definition" "db_bootstrap" {
   }
 
   container_definitions = jsonencode([{
-    name        = "db-bootstrap"
-    image       = "${aws_ecr_repository.main["pensieve-db"].repository_url}:main"
-    essential   = true
-    command     = ["bootstrap.cjs"]
-    environment = [for k, v in local.db_connection_env : { name = k, value = v }]
+    name      = "db-bootstrap"
+    image     = "${aws_ecr_repository.main["pensieve-db"].repository_url}:main"
+    essential = true
+    command   = ["bootstrap.cjs"]
+    environment = [for k, v in merge(local.db_connection_env, {
+      BOOTSTRAP_AUTH = "iam" # ticket 62, temporary
+    }) : { name = k, value = v }]
     secrets = [
       { name = "PGUSER", valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:username::" },
       { name = "PGPASSWORD", valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:password::" },

@@ -91,6 +91,15 @@ image reuses it), runs it in the service's subnet and security group, waits
 for it to stop, and exits non-zero unless the container exited 0. Either way
 it prints the task's log output and its CloudWatch log group and stream.
 
+**The master's password login (ticket 62).** The first prod bootstrap left
+the master holding the migrator's privileges, so RDS made it IAM-only and
+every later run failed with `PAM authentication failed`. The bootstrap now
+gives that membership up before committing. To recover, the
+`pensieve-db-bootstrap` family temporarily has a task role that may connect
+as the master over IAM (`iam.tf`) and `BOOTSTRAP_AUTH=iam`, so one run of the
+fixed image logs in that way and revokes the membership. Once a normal run
+works again, both come out.
+
 ## Deploying the database
 
 Ticket 54 (spec 13). Migrations run only through the `deploy-db` workflow

@@ -46,3 +46,8 @@ override_resource {
   target = aws_iam_role.db_bootstrap_execution
   values = { arn = "arn:aws:iam::123456789012:role/pensieve-db-bootstrap-execution" }
 }
+
+override_resource {
+  target = aws_iam_role.db_bootstrap_task
+  values = { arn = "arn:aws:iam::123456789012:role/pensieve-db-bootstrap-task" }
+}

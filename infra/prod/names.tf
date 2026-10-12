@@ -40,6 +40,8 @@ locals {
     migrate_task           = "pensieve-migrate-task"
     migrate_execution      = "pensieve-migrate-execution"
     db_bootstrap_execution = "pensieve-db-bootstrap-execution"
+    # Ticket 62, temporary: removed once the master's password login is back.
+    db_bootstrap_task = "pensieve-db-bootstrap-task"
   }
 
   # kics-scan ignore-line (the secret's name, not its value)
