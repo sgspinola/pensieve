@@ -15,7 +15,7 @@
 - [x] On success: starts the recorded revision (or a new one for `app_sha`), restores the count and waits for stability. On a failed stabilisation the summary points to the restore runbook
 - [x] Deletes `pensieve-predeploy-*` snapshots other than the one just taken
 - [x] Manual: the `prod-db` Environment has a `DEPLOY_DB_ROLE_ARN` variable (`terraform output role_arns` in `infra/bootstrap`, `deploy_db`)
-- [ ] Verified by the first real run (with ticket 56), and a deliberate breaking migration dispatched without `app_sha` that's refused and leaves the app running
+- [ ] Verified by the first real run (with ticket 56), and a deliberate breaking migration dispatched without `app_sha` that's refused and leaves the app running. First real run: done on 2026-10-12 (`sha-3a0ad38`, run 38296935904: snapshot `pensieve-predeploy-3a0ad38-20261012192302`, `pensieve-migrate:2` with `ALLOW_BREAKING=false` printed "Migrations applied", and the service stayed at 0 tasks for the first deploy). The refused-breaking-migration run is still to do
 
 **Implementation notes:**
 - The workflow (`.github/workflows/deploy-db.yml`) only authenticates and calls `scripts/deploy-db.sh` (since ticket 52, through `.github/actions/deploy`, shared with deploy-app), which does the window. It assumes the role once for an hour with `assume-role-with-web-identity` (GitHub's OIDC token lasts about five minutes). cosign runs as its pinned image behind a `cosign` shim on PATH. It shares the `prod-deploy` concurrency group with deploy-app (52), never cancelling.

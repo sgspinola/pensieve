@@ -4,14 +4,14 @@
 
 **Blocked by:** 46 (ECR push role), 48 (`pensieve` repository)
 
-**Status:** in-review: implemented on `feat/50-app-image-publish`; items 5–7 wait on the first real release (and PR merge)
+**Status:** in-review: merged; item 6 waits on a lifecycle preview after the signatures are a day old, item 7 on a release that changes no app input
 
 - [x] `publish` runs on every push to `main` (never on PRs), with `needs` listing every CI job of `ci.yml`
 - [x] Permissions limited to `id-token: write` and `contents: read`; authentication via OIDC only, no long-lived keys
 - [x] Pushes the build artifact's bytes (no rebuild) as `sha-<short sha>`; the moving `main` tag decision is confirmed against the pinned provider and recorded; no `latest` or semver tags
 - [x] Keyless cosign signature stored in ECR as an OCI 1.1 referrer (not a legacy `sha256-….sig` tag); the SBOM is attached as an OCI 1.1 referrer
-- [ ] Verified on the first release: image present, `cosign verify` succeeds with the expected identity and issuer, SBOM referrer listed
-- [ ] ECR lifecycle evaluation is confirmed not to remove kept images' signatures or SBOMs (adjust the ticket 48 rules if it does)
+- [x] Verified on the first release: image present, `cosign verify` succeeds with the expected identity and issuer, SBOM referrer listed. First release (2026-10-12, merge `3a0ad38`, PR #77): `pensieve:sha-3a0ad38` (and `main`). `cosign verify` and `cosign verify-attestation --type cyclonedx` pass against `ci.yml@refs/heads/main` and GitHub's issuer (190 components). `cosign tree` lists both referrers, with no `sha256-*.sig` tags. The deploy-app role verified it too, in the first `deploy-app` run
+- [ ] ECR lifecycle evaluation is confirmed not to remove kept images' signatures or SBOMs (adjust the ticket 48 rules if it does). A preview on 2026-10-12 selected nothing in either repository, but the referrers were minutes old, and the untagged rule only applies after a day. Re-run `aws ecr start-lifecycle-policy-preview` on both repositories after 2026-10-12
 - [ ] A later release touching no app inputs publishes no new app image
 
 **Implementation notes:**
