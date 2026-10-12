@@ -6,7 +6,7 @@ import { ChevronDown, ChevronUp, Pencil, Trash2, User } from "lucide-react";
 import { readErrorMessage } from "@/lib/http-client";
 import { computeOverlayPosition, type OverlayOriginRect } from "@/lib/overlay-position";
 import type { SessionUser } from "@/services/auth/session";
-import { canDeleteFlashcard } from "@/services/flashcards/flashcards";
+import { canDeleteFlashcard } from "@/services/flashcards/permissions";
 import { Modal } from "@/app/Modal";
 import { MarkdownBlock } from "@/app/items/MarkdownBlock";
 import "@/app/items/markdown-theme.module.css";

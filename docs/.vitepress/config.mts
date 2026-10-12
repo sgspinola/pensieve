@@ -43,6 +43,7 @@ export default withMermaid({
           { text: "Database Schema", link: "/architecture/database-schema" },
           { text: "Module Structure", link: "/architecture/module-structure" },
           { text: "Error Handling & Logging", link: "/architecture/error-handling-logging" },
+          { text: "Deployable Image", link: "/architecture/deployable-image" },
         ],
       },
       {
@@ -58,6 +59,8 @@ export default withMermaid({
           { text: "Flashcards Import/Export", link: "/flows/flashcards-import-export" },
           { text: "Flashcard Study Session", link: "/flows/flashcard-study-session" },
           { text: "Wiki Article Management", link: "/flows/wiki-article-management" },
+          { text: "Health Check", link: "/flows/health-check" },
+          { text: "Startup Schema Check", link: "/flows/startup-schema-check" },
         ],
       },
     ],

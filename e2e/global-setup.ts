@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import "dotenv/config";
+import type { FullConfig } from "@playwright/test";
 import { getDb } from "../src/db/client";
 import { users } from "../src/db/schema";
 import { createSession } from "../src/services/auth/session";
@@ -20,7 +21,7 @@ export const SEEDED_USER_FILE = path.join(AUTH_DIR, "seeded-user.json");
  * (src/proxy.ts) and real server-rendered/client-hydrated pages, not a
  * mocked-out shortcut.
  */
-export default async function globalSetup() {
+export default async function globalSetup(config: FullConfig) {
   const db = getDb();
 
   const [user] = await db
@@ -37,7 +38,9 @@ export default async function globalSetup() {
       {
         name: "session",
         value: session.token,
-        domain: "localhost",
+        // Matches whichever host the suite targets: `next dev` on localhost,
+        // or PLAYWRIGHT_BASE_URL's host (playwright.config.ts).
+        domain: new URL(config.projects[0].use.baseURL ?? "http://localhost").hostname,
         path: "/",
         httpOnly: true,
         secure: false,

@@ -29,6 +29,10 @@ const PUBLIC_PATHS = new Set([
   "/api/auth/recover/verify",
   "/api/auth/invite/options",
   "/api/auth/invite/verify",
+  // Ticket 28: the readiness probe (container HEALTHCHECK, CI e2e) has no
+  // session to present. Exact-match only, and the route returns nothing
+  // beyond up/down — see src/app/api/health/route.ts.
+  "/api/health",
 ]);
 
 // `/invite/<token>` is the one page an unauthenticated visitor can land on

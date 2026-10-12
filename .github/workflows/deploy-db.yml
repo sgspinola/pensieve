@@ -1,0 +1,62 @@
+# Ticket 54: the database's maintenance window (spec 13, "`deploy-db`
+# workflow"). Dispatched by hand from main, it waits for the maintainer's
+# approval (the `prod-db` Environment: required reviewer, main only), then
+# runs scripts/deploy-db.sh as the deploy-db role, which can migrate and
+# restart the app but can't touch the master secret, the bootstrap task or
+# any backup but pre-deploy snapshots (infra/bootstrap/iam-deploy-db.tf).
+#
+# Dispatch with `db_sha` alone for an additive migration (the app restarts
+# on its current revision), or with `app_sha` too for a breaking one (the
+# app restarts on that version). See the script's header for the steps and
+# what happens when one fails.
+#
+# Same baseline as ci.yml: least-privilege permissions, actions pinned to a
+# full commit SHA, checkout without persisted credentials, tools the runner
+# doesn't ship run as digest-pinned images (cosign, in .github/actions/deploy,
+# shared with deploy-app.yml), a timeout and a short $GITHUB_STEP_SUMMARY.
+name: deploy-db
+
+on:
+  workflow_dispatch:
+    inputs:
+      db_sha:
+        description: "DB image to migrate with: the main commit whose release published it (sha-<7> in pensieve-db)"
+        required: true
+        type: string
+      app_sha:
+        description: "Breaking migrations only: the app version that expects it (sha-<7> in pensieve). Allows breaking migrations."
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+# One prod deploy at a time, app or database (deploy-app shares the group),
+# and never cancelled halfway through a maintenance window.
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-db:
+    name: deploy-db
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    # Normally minutes. Inside the role session's hour; a run killed by the
+    # timeout skips the script's restore, leaving the app at 0 tasks (the
+    # summary shows how far it got): dispatch deploy-app to start it.
+    timeout-minutes: 55
+    environment: prod-db
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/deploy
+        with:
+          role-arn: ${{ vars.DEPLOY_DB_ROLE_ARN }}
+          script: deploy-db.sh
+          sha: ${{ inputs.db_sha }}
+          app-sha: ${{ inputs.app_sha }}

@@ -1,0 +1,146 @@
+# Prod config
+
+Tickets 48 and 49 (spec 11). Production in eu-north-1, state in the
+bootstrap config's bucket: the stateful and network foundation (48), and the
+compute and Cloudflare Tunnel ingress (49):
+
+| File | What |
+| --- | --- |
+| `network.tf` | VPC; a public subnet holding only the NAT Gateway (and its Elastic IP); private subnets in two AZs (the task and RDS run in `eu-north-1a`; `-b` exists because an RDS subnet group needs two); an S3 gateway endpoint so image pulls skip the NAT |
+| `security-groups.tf` | `pensieve-task` (no inbound at all, any outbound) and `pensieve-rds` (Postgres from `pensieve-task` only) |
+| `database.tf` | RDS PostgreSQL 17, `db.t4g.micro`, single-AZ, 20→50 GB gp3, encrypted, IAM auth, RDS-managed master password (never in state), 35-day PITR, deletion protection, final snapshot, retained backups |
+| `registry.tf` | ECR `pensieve` and `pensieve-db`: immutable tags except `main`; keep the last 50 `sha-*`, expire untagged after a day |
+| `observability.tf` | Log groups for the app, `cloudflared`, migrate and db-bootstrap (30 days); a monthly budget alerting at $10 actual and $20 forecast |
+| `compute.tf` | ECS cluster and the one service (Fargate ARM64, 0.25 vCPU / 1 GB, desired count 0, 0%/100% deployments with circuit-breaker rollback, no load balancer); the first revisions of the app (app + `cloudflared` sidecar), migrate and db-bootstrap task definitions. The service ignores later task-definition and desired-count changes: the deploy workflows own them |
+| `iam.tf` | Task and execution roles: the app task may `rds-db:connect` only as `pensieve_app`, migrate only as `pensieve_migrator`; only db-bootstrap's execution role reads the RDS master secret |
+| `tunnel.tf` | Cloudflare: the tunnel, its ingress (`pensieve.fyi` → `http://localhost:3000`), the proxied apex CNAME and Full (strict) SSL; the tunnel token, built from a Terraform-generated tunnel secret and stored in Secrets Manager for the sidecar |
+
+Names the bootstrap config's CI roles are scoped to must match
+`infra/bootstrap/names.tf` exactly (see `names.tf` here).
+
+## Tests
+
+`tests/*.tftest.hcl` check the configuration against tickets 48
+(`foundation`) and 49 (`compute`, `ingress`) with mocked AWS and Cloudflare
+providers: no credentials, nothing created. The mocks' shared defaults are in
+`tests/mocks/`. CI's `iac` job runs them.
+
+```sh
+cd infra/prod
+terraform init -backend=false
+terraform test
+```
+
+## Applying it
+
+As the admin user (see `infra/bootstrap/README.md`, step 1), after the
+bootstrap config is applied. The budget's email address isn't committed:
+put `budget_email = "<you>"` in `infra/prod/terraform.tfvars` (git-ignored),
+and the same address in the `plan` Environment's `BUDGET_EMAIL` secret so
+CI's plan has it (a secret, not a variable, so the run log masks it).
+
+The Cloudflare provider reads `CLOUDFLARE_API_TOKEN`. For applies, create a
+token (Cloudflare dashboard, My Profile → API Tokens) scoped to the
+`pensieve.fyi` zone and its account, with Zone: Read, DNS: Edit and Zone
+Settings: Edit on the zone, and Account: Cloudflare Tunnel: Edit. Keep it out
+of the repository and your shell history (e.g. in a password manager). CI's
+plan uses its own read-only token, the `plan` Environment's
+`CLOUDFLARE_API_TOKEN` secret: Zone: Read, DNS: Read and Zone Settings: Read
+on the zone, and Account: Cloudflare Tunnel: Read. (Nothing in this config
+reads the token back from Cloudflare, which would need Tunnel Write.)
+
+```sh
+aws login --profile pensieve-admin
+export AWS_PROFILE=pensieve-admin
+read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN
+cd infra/prod
+terraform init -backend-config="bucket=pensieve-tfstate-$(aws sts get-caller-identity --query Account --output text)"
+terraform plan -out prod.tfplan   # review it
+terraform apply prod.tfplan
+```
+
+The service starts at 0 tasks: nothing runs until the first `deploy-app`
+(ticket 52), after the DB bootstrap and first `deploy-db` (tickets 53, 54).
+The tunnel token is sensitive, so plans print `(sensitive value)` for it; it
+lives in state and in the `pensieve/cloudflared-tunnel-token` secret.
+
+The instance has deletion protection, and destroying it leaves a final
+snapshot (`pensieve-final`) and the automated backups. Turn protection off in
+code (a reviewed change) before anything can remove it.
+
+## Bootstrapping the database
+
+Ticket 53 (spec 13). The database roles and grants (`db/bootstrap.sql`) are
+created by `scripts/db-bootstrap.sh`, run by hand as the admin user: once
+after the first apply, then again whenever the bootstrap SQL changes (it's
+idempotent). It runs the bootstrap as a one-off ECS task, so the master
+password stays in AWS, and no GitHub role can run that task family or pass
+its role. Needs cosign 3+ and jq; the argument is the `main` commit whose
+release published the DB image (its `sha-<7>` tag in `pensieve-db`):
+
+```sh
+aws login --profile pensieve-admin
+export AWS_PROFILE=pensieve-admin
+scripts/db-bootstrap.sh <db-sha>
+```
+
+It verifies the image's signature (published by `db.yml` on `main`) before
+touching ECS, registers a `pensieve-db-bootstrap` revision from the latest
+one with only the image changed (pinned by digest; a re-run on the same
+image reuses it), runs it in the service's subnet and security group, waits
+for it to stop, and exits non-zero unless the container exited 0. Either way
+it prints the task's log output and its CloudWatch log group and stream.
+
+## Deploying the database
+
+Ticket 54 (spec 13). Migrations run only through the `deploy-db` workflow
+(Actions → deploy-db → Run workflow, on `main`), which waits for your
+approval in the `prod-db` Environment and then runs `scripts/deploy-db.sh`
+as the `deploy-db` role. The role's ARN is the `prod-db` Environment's
+`DEPLOY_DB_ROLE_ARN` variable (from `terraform output role_arns` in
+`infra/bootstrap`).
+
+- **Additive migration:** `db_sha` only. The app restarts on its current
+  revision afterwards.
+- **Breaking migration:** `db_sha` and `app_sha`, the app version that
+  expects it. Without `app_sha` the migrator refuses a breaking migration,
+  and the app comes back unchanged.
+
+It verifies the image(s), records the service's revision and desired count,
+scales it to 0, snapshots the database (`pensieve-predeploy-<db-sha>-<UTC
+time>`), runs the migrator as a one-off task, then starts the app again at
+the recorded count and deletes the older pre-deploy snapshots. A failed or
+refused migration changes nothing and restores the app; if the app doesn't
+stabilise after a migration, the run fails and points to the restore
+runbook. If it gives up waiting for the migrator, which may still be
+running, it leaves the app stopped: check the migrate log group, then start
+the app with `deploy-app`. The first deploy's count is 0, so the app stays down until
+`deploy-app` starts it. The run summary says what happened.
+
+## Deploying the app
+
+Ticket 52 (spec 12). App releases go through the `deploy-app` workflow
+(Actions → deploy-app → Run workflow, on `main`), with `app_sha` the `main`
+commit whose release published the image. It waits for your approval in the
+`prod-app` Environment and runs `scripts/deploy-app.sh` as the `deploy-app`
+role (ARN in that Environment's `DEPLOY_APP_ROLE_ARN` variable), which can't
+touch the database.
+
+It verifies the image, registers a `pensieve-app` revision from the latest
+with only the app image changed, and points the service at it, at desired
+count 1 on the first deploy, then waits until it's stable. Downtime is about
+one Fargate cold start. If the new task never turns healthy (including the
+startup schema check refusing a schema it can't run on), the circuit breaker
+rolls back and the run fails with a link to the app log group. An app that
+needs a schema change ships after `deploy-db`, or with it for a breaking
+change (`deploy-db` with `app_sha`).
+
+Both workflows run their script through `.github/actions/deploy` (assume
+the role once, cosign as its pinned image) and share one concurrency group,
+so two prod deploys never overlap.
+
+`scripts/lib/deploy.sh` holds what the three scripts share
+(verifying images, registering a revision from the family's latest with only
+the image changed, running a one-off task, updating the service and checking
+it settled). New
+revisions carry no tags: the deploy roles may not tag.

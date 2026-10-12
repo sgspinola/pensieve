@@ -7,7 +7,6 @@ import type { SessionUser } from "@/services/auth/session";
 import { getFlashcardTagNames, listTags } from "@/services/tags/tags";
 import { useTestLogSink } from "@/test/log-sink";
 import {
-  canDeleteFlashcard,
   countFlashcards,
   createFlashcard,
   deleteFlashcard,
@@ -296,19 +295,6 @@ describe("flashcards service", () => {
       await deleteFlashcard(db, alice, card1.id);
 
       expect(await listTags(db)).toContain("shared");
-    });
-  });
-
-  describe("canDeleteFlashcard", () => {
-    it("returns true for the creator and for any admin, false for a non-creator, non-admin member", () => {
-      const alice: SessionUser = { id: "alice-id", displayName: "Alice", role: "member" };
-      const admin: SessionUser = { id: "admin-id", displayName: "Admin", role: "admin" };
-      const bob: SessionUser = { id: "bob-id", displayName: "Bob", role: "member" };
-      const flashcard = { createdBy: "alice-id" };
-
-      expect(canDeleteFlashcard(alice, flashcard)).toBe(true);
-      expect(canDeleteFlashcard(admin, flashcard)).toBe(true);
-      expect(canDeleteFlashcard(bob, flashcard)).toBe(false);
     });
   });
 

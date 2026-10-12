@@ -9,3 +9,56 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "daily"
+    # Ticket 32: matches .npmrc's min-release-age (npm couldn't resolve a
+    # younger version anyway). Security updates ignore cooldowns.
+    cooldown:
+      default-days: 7
+    # Version updates only for deps declared in package.json; transitive
+    # bumps were lockfile-only PR noise. `allow` also filters security
+    # updates, so a vulnerable transitive dep raises an alert but no PR.
+    # Fix it by hand (npm update / overrides).
+    allow:
+      - dependency-type: "direct"
+    ignore:
+      # Ticket 27: typescript-eslint supports `typescript >=4.8.4 <6.1.0`;
+      # TypeScript 7 crashes ESLint on startup. Drop this once
+      # typescript-eslint supports 7.
+      - dependency-name: "typescript"
+        versions: [">=7"]
+
+  # Ticket 30: keep the SHA-pinned actions in .github/workflows current.
+  # Minor/patch bumps arrive as one grouped PR; majors stay separate.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # Ticket 33: the Dockerfiles' base images are pinned by tag and digest;
+  # this keeps them current, in the app image and the DB image (ticket 41).
+  - package-ecosystem: "docker"
+    directories: ["/", "/db"]
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      docker-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # Ticket 33: Terraform providers. Dependabot reads one directory per root
+  # config, not recursively (ticket 48 added infra/prod). Keep the two
+  # configs' AWS provider pins equal.
+  - package-ecosystem: "terraform"
+    directories: ["/infra/bootstrap", "/infra/prod"]
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      terraform-minor-patch:
+        update-types: ["minor", "patch"]

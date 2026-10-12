@@ -1,0 +1,13 @@
+# Ticket 34: exceptions for the CI `trivy` job's image vulnerability scan
+# (https://trivy.dev/latest/docs/configuration/filtering/#trivyignore).
+#
+# The scan already skips vulnerabilities with no fix available, so an entry
+# here is a reviewed decision to ship a fixable one for now. Every entry needs
+# a comment above it giving the reason, and an `exp:YYYY-MM-DD` expiry on the
+# ID's line. Trivy enforces the expiry: once it passes, the finding fails the
+# scan again, so the exception is reviewed rather than kept by accident.
+#
+# Example:
+#   # <package> <version>: only reachable via <feature>, which we don't use;
+#   # fix lands in the next base-image digest bump
+#   CVE-2026-12345 exp:2026-12-31

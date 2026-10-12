@@ -26,11 +26,12 @@ downstream, at `listFlashcards`'s decode step.
 ## The permission asymmetry, up front
 
 Unlike items, **update and delete are not governed by the same rule.**
-`updateFlashcard` (`src/services/flashcards/flashcards.ts:129-140`) is
+`updateFlashcard` (`src/services/flashcards/flashcards.ts:139-150`) is
 documented as deliberately open-edit: "any authenticated actor may update
 any flashcard, with no ownership/role check at all." `deleteFlashcard`
-(`flashcards.ts:176-198`), by contrast, gates on `canDeleteFlashcard`
-(`flashcards.ts:104-114`) — admin, or the flashcard's own creator — the
+(`flashcards.ts:205-227`), by contrast, gates on `canDeleteFlashcard`
+(`src/services/flashcards/permissions.ts:18-20`, a pure module so the client
+`FlashcardRow` can import it too) — admin, or the flashcard's own creator — the
 same creator-or-admin rule `items.ts`'s `canModifyItem` uses. A comment on
 `canDeleteFlashcard` even notes this was **originally creator-only with no
 admin case**, and was widened to admin-or-creator later because the
@@ -57,13 +58,13 @@ sequenceDiagram
         Route->>Route: getCurrentUser()
         Route->>Svc: createFlashcard(db, { creatorId, front, back, source, tags })
         Svc->>Svc: normalizeTagNames(tags ?? [])
-        alt normalizes to zero tags (flashcards.ts:73-76)
+        alt normalizes to zero tags (flashcards.ts:87-90)
             Note right of Svc: omitted, [], or every name<br/>blank/whitespace — at least one<br/>real tag is required (ticket 04)
             Svc-->>Route: throw ValidationError("At least one tag is required")
             Route-->>Browser: 400 { error: { code: "VALIDATION",<br/>message: "At least one tag is required", requestId } }
         else at least one tag
             Svc->>DB: insert into flashcards (front, back, source,<br/>front_hash = sha256(trim(front)), created_by) returning *
-            alt frontHash UNIQUE violation (flashcards.ts:48-57)
+            alt frontHash UNIQUE violation (flashcards.ts:57-66)
                 DB-->>Svc: unique constraint error
                 Svc-->>Route: throw ValidationError("A flashcard with this exact question already exists")
                 Route-->>Browser: 400 { error: { code: "VALIDATION",<br/>message: "A flashcard with this exact question already exists", requestId } }
@@ -77,7 +78,7 @@ sequenceDiagram
     end
 ```
 
-`front_hash` (`flashcards.ts:85`, a `sha256Hex` of the *trimmed* `front`
+`front_hash` (`flashcards.ts:99`, a `sha256Hex` of the *trimmed* `front`
 text) is never accepted as caller input — it's derived server-side, so
 there's nothing for a client to spoof or drift out of sync. The
 `flashcards.front_hash` column carries a `UNIQUE` constraint (see
@@ -106,13 +107,13 @@ sequenceDiagram
         Note right of Route: user is forwarded as `actor` for<br/>signature symmetry with updateItem,<br/>but updateFlashcard never reads it
         Route->>Svc: updateFlashcard(db, user, id, updates)
         Svc->>DB: getFlashcard(id)
-        alt not found (flashcards.ts:96-102)
+        alt not found (flashcards.ts:118-124)
             Svc-->>Route: throw NotFoundError("Flashcard not found")
             Route-->>Browser: 404 { error: { code: "NOT_FOUND",<br/>message: "Flashcard not found", requestId } }
         else found — no ownership check
             opt tags provided
                 Svc->>Svc: normalizeTagNames(tags)
-                alt normalizes to zero tags (flashcards.ts:155-157)
+                alt normalizes to zero tags (flashcards.ts:165-168)
                     Svc-->>Route: throw ValidationError("At least one tag is required")
                     Route-->>Browser: 400 { error: { code: "VALIDATION",<br/>message: "At least one tag is required", requestId } }
                 end
@@ -122,7 +123,7 @@ sequenceDiagram
                 Note right of Svc: recomputed in lockstep so front_hash<br/>never drifts from the text it derives from
             end
             Svc->>DB: update flashcards set ...columnUpdates,<br/>updated_at = now() where id = :id returning *
-            alt frontHash UNIQUE violation (flashcards.ts:48-57)
+            alt frontHash UNIQUE violation (flashcards.ts:57-66)
                 DB-->>Svc: unique constraint error
                 Svc-->>Route: throw ValidationError("A flashcard with this exact question already exists")
                 Route-->>Browser: 400 { error: { code: "VALIDATION",<br/>message: "A flashcard with this exact question already exists", requestId } }
@@ -161,11 +162,11 @@ sequenceDiagram
         Route->>Route: getCurrentUser()
         Route->>Svc: deleteFlashcard(db, user, id)
         Svc->>DB: getFlashcard(id)
-        alt not found (flashcards.ts:96-102)
+        alt not found (flashcards.ts:118-124)
             Svc-->>Route: throw NotFoundError("Flashcard not found")
             Route-->>Browser: 404 { error: { code: "NOT_FOUND",<br/>message: "Flashcard not found", requestId } }
         else found
-            alt !canDeleteFlashcard(actor, flashcard) (flashcards.ts:112-114, :185-187)
+            alt !canDeleteFlashcard(actor, flashcard) (permissions.ts:18-20, flashcards.ts:208-210)
                 Note right of Svc: admin, or actor.id === flashcard.createdBy<br/>— otherwise rejected. Unlike updateFlashcard,<br/>this check IS enforced.
                 Svc-->>Route: throw UnauthorizedError("You do not have permission to delete this flashcard")
                 Route-->>Browser: 401 { error: { code: "UNAUTHORIZED",<br/>message: "You do not have permission to delete this flashcard", requestId } }

@@ -37,12 +37,21 @@ export async function addFlashcard(page: Page, front: string, back: string, tags
   }
   await page.getByRole("button", { name: "Add flashcard" }).click();
   await page.waitForURL(/\/flashcards$/);
+  // Every spec shares one seeded user, and import-export.spec.ts bulk-imports
+  // hundreds of sample cards for it in parallel. The unfiltered list shows
+  // only the newest page, so a card added just before that import lands can
+  // fall off it. A run-unique tag's filtered list can't be crowded out.
+  if (tags?.length) {
+    await page.goto(`/flashcards?tags=${encodeURIComponent(tags[0])}`);
+  }
   await expect(page.getByText(front, { exact: false })).toBeVisible();
 }
 
 /** Generalized from the local copy in smoke.spec.ts's library tag-search test (ticket 03). */
 export async function addLinkWithTag(page: Page, url: string, tag: string) {
   await page.goto("/items/new");
+  // The form defaults to Tool; a "link with tag" should actually be a Link.
+  await page.getByRole("radio", { name: "Link" }).click();
   await page.getByLabel("URL").fill(url);
   await page.getByLabel("Title", { exact: true }).fill(url);
   await page.getByLabel("Tags").fill(tag);

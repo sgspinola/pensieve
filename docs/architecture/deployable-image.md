@@ -1,0 +1,168 @@
+# Deployable image
+
+Pensieve ships as two container images, both built for `linux/arm64` only, to match the Graviton runtime they deploy to:
+
+- **The app image**, built by the root `Dockerfile`, runs the Next.js server. It contains no migration SQL and no migrator, so it can't change the schema.
+- **The DB image**, built by `db/Dockerfile`, holds the Drizzle migrations and the migrator that applies them, and no Next.js or app code. It's the database's own artifact, so a schema change and an app release can ship independently (see [DB image](#db-image)).
+
+## From source to image (app)
+
+```mermaid
+flowchart LR
+    subgraph Context["Build context (.dockerignore denylist)"]
+        Src["src/, package*.json,<br/>next.config.ts, drizzle/meta/_journal.json,<br/>certs/rds-global-bundle.pem"]
+        Env[".env*, other *.pem, .git,<br/>node_modules, .next,<br/>backlog/, docs/, infra/, db/, e2e/,<br/>.github/, tests, tooling config, …"]
+    end
+
+    subgraph Builder["builder stage — node:24-trixie-slim"]
+        Ci["npm ci<br/>(npm 11.16.0)"]
+        Build["next build<br/>output: standalone"]
+        Esb["esbuild bundle<br/>src/ops/healthcheck.ts"]
+    end
+
+    subgraph Runtime["runtime stage — distroless nodejs24 :nonroot"]
+        Server["server.js + traced node_modules<br/>.next/server"]
+        Static[".next/static"]
+        Cache[".next/cache<br/>(only nonroot-writable dir)"]
+        Journal["drizzle/meta/_journal.json<br/>(migration tags only)"]
+        Health["healthcheck.cjs"]
+        Ca["certs/rds-global-bundle.pem"]
+    end
+
+    Src --> Ci --> Build --> Server
+    Build --> Static
+    Src --> Esb --> Health
+    Src --> Journal
+    Src --> Ca
+    Env -.->|"excluded: never<br/>reaches the build"| Builder
+```
+
+Only the right-hand box ships. The builder stage holds the full toolchain and dev dependencies and is thrown away.
+
+- **Standalone output** (`next.config.ts`). `next build` traces what `server.js` actually imports and copies only those files from `node_modules`. That trace is why the image needs no `npm install`, and it's also why a local `.env` is dangerous: Next copies `.env` and `.env.production` into `.next/standalone`. `.dockerignore` keeps every `.env*` out of the build context, so it never gets the chance.
+- **No `sharp`.** `sharp` is an optional dependency of `next` that the server trace would otherwise pull in, along with its native libvips. Nothing uses `next/image`, so `images.unoptimized` turns off the optimizer and `outputFileTracingExcludes["next-server"]` drops `sharp`/`@img` from the trace.
+- **Same inputs, same image.** The build context leaves out everything the app isn't built from: tickets, docs, infra, CI, the DB image, tests and tooling config. CI also builds with a fixed `SOURCE_DATE_EPOCH`, so the image config carries no build time. A release that changes none of the app's inputs therefore rebuilds from cache into an image with the same config digest, and [publishing](#publishing-to-ecr) skips it. That takes a warm layer cache: on a cache miss, `next build` produces a new build ID and the image differs anyway, so an unchanged release publishes a functionally identical new image.
+- **Bundled healthcheck.** The standalone trace only follows what the server imports, so esbuild bundles `src/ops/healthcheck.ts` into a self-contained CommonJS file. The runtime needs no `tsx`.
+- **Migration journal, not migrations.** The image carries `drizzle/meta/_journal.json`, the list of migration tags this build was made against, and none of the SQL. It's there for the app's [startup schema check](/flows/startup-schema-check) (spec 13).
+- **RDS CA bundle.** In AWS the app and the DB image's migrator connect with RDS IAM auth instead of a `DATABASE_URL`, which requires TLS. `certs/rds-global-bundle.pem` is AWS's public RDS CA bundle, committed to the repo and copied into both images, and the connection helper verifies the database's certificate against it. It's the one `*.pem` the `.gitignore` and `.dockerignore` let through.
+- **Hardening.** The runtime base has no shell or package manager and runs as distroless's `nonroot` user, set by number (`65532`) so a runtime can verify it isn't root. Application files are root-owned, so the app user can only read them. The one writable path is `.next/cache`. Both base images are pinned by multi-arch index digest.
+
+## DB image
+
+`db/Dockerfile` is built from the repository root (`docker build -f db/Dockerfile .`), with its own build-context denylist, `db/Dockerfile.dockerignore` (BuildKit reads it instead of the root `.dockerignore`, which leaves `db/` out). It uses the same bases and hardening as the app image: a `node:24-trixie-slim` builder stage runs `npm ci`, and the runtime stage is distroless Node `nonroot`, both pinned by multi-arch index digest and kept current by Dependabot.
+
+```mermaid
+flowchart LR
+    subgraph Builder["builder stage — node:24-trixie-slim"]
+        Ci["npm ci<br/>(npm 11.16.0)"]
+        Esb["esbuild bundle (npm run build:db)<br/>db/migrate.ts, db/bootstrap.ts<br/>+ src/db/connection.ts"]
+    end
+
+    subgraph Runtime["runtime stage — distroless nodejs24 :nonroot"]
+        Migrate["migrate.cjs<br/>(default command)"]
+        Boot["bootstrap.cjs"]
+        BootSql["db/bootstrap.sql"]
+        Drizzle["drizzle/<br/>*.sql + meta/"]
+        Ca["certs/rds-global-bundle.pem"]
+    end
+
+    Ci --> Esb --> Migrate
+    Esb --> Boot
+    Ctx["Build context:<br/>drizzle/, db/bootstrap.sql, certs/"] --> Drizzle
+    Ctx --> BootSql
+    Ctx --> Ca
+```
+
+- **Only the database's entrypoints.** The builder copies in just what the bundles import (`db/`, `src/db/` and `tsconfig.json` for the `@/` alias), and esbuild bundles `db/migrate.ts` and `db/bootstrap.ts`, each with postgres.js and the `src/db/connection.ts` helper (including the AWS RDS signer), into self-contained CommonJS files. The runtime needs neither drizzle-kit nor `node_modules`.
+- **Its default command migrates.** `docker run <db-image>` runs `migrate.cjs`, which applies the pending migrations under `drizzle/` and exits 0, or 1 on any failure. drizzle-orm's own `migrate()` decides what's pending and applies it, so the image and drizzle-kit always agree on what's applied. It runs inside one transaction the migrator owns, where drizzle's own transaction becomes a savepoint. The checks below then run on the rows `migrate()` added to Drizzle's bookkeeping table.
+  - **Breaking migrations are refused by default.** If any migration in the batch has a SQL file starting with `-- pensieve:breaking`, it exits 1 naming them, unless `ALLOW_BREAKING=true` (see the README's "Additive or breaking?"). The refusal rolls the transaction back, so nothing is applied. In prod it runs only as the one-off migrate task of the `deploy-db` workflow (`scripts/deploy-db.sh`, usage in `infra/prod/README.md`), which stops the app, snapshots the database, migrates and restarts the app, and sets `ALLOW_BREAKING` explicitly: `true` only when it's given the app version that expects the breaking change.
+  - **`pensieve_meta.schema_compat`.** In the same transaction it upserts this single-row table with the tag of the newest breaking migration ever applied (null if none). The app's [startup schema check](/flows/startup-schema-check) reads it.
+  - A failure anywhere rolls the whole batch back. It connects through the same helper as the app: `DATABASE_URL` when it's set, RDS IAM auth from the `PG*` variables otherwise.
+- **`bootstrap.cjs` creates the roles and grants.** `docker run <db-image> bootstrap.cjs` runs `db/bootstrap.sql` in one transaction, so a failure changes nothing (see [Roles and grants](/architecture/database-schema#roles-and-grants)). In AWS it logs in as the RDS master user, with the user and password ECS injects from the RDS-managed master secret (the helper's password mode, still over verified TLS). It runs only as a one-off task the maintainer launches with `scripts/db-bootstrap.sh` (usage in `infra/prod/README.md`), never from CI.
+- **Everything is read-only.** No path in the image is writable by the `nonroot` user, and nothing needs to be.
+
+Local development and the app's CI don't use the DB image. They migrate with drizzle-kit (`npm run db:migrate`).
+
+## Running the images
+
+```mermaid
+sequenceDiagram
+    participant Op as Operator / CI
+    participant Mig as DB image (migrate.cjs)
+    participant App as app image (server.js)
+    participant HC as healthcheck.cjs (HEALTHCHECK)
+    participant DB as Postgres
+
+    Op->>Mig: docker run <db-image> (DATABASE_URL, or PG* vars for RDS IAM)
+    Mig->>DB: BEGIN; note the newest bookkeeping row
+    Mig->>DB: drizzle migrate() in a savepoint: pending SQL + bookkeeping rows
+    Mig->>DB: read the rows migrate() added
+    alt one of them is breaking and ALLOW_BREAKING isn't "true"
+        Mig->>DB: ROLLBACK (migrate()'s work included)
+        Mig-->>Op: exit 1 + "breaking migration(s) pending: <tags>"
+    else
+        Mig->>DB: upsert pensieve_meta.schema_compat; COMMIT
+        Mig-->>Op: exit 0 (also when nothing was pending)
+    else unreachable DB, bad SQL, no DATABASE_URL or PG* vars
+        Mig-->>Op: exit 1 + "Migration failed: … (cause)", nothing applied
+    end
+
+    Op->>App: docker run <app-image> (DATABASE_URL or PG* vars, PORT=3000)
+    App->>DB: startup schema check: bookkeeping rows + schema_compat vs. the image's journal
+    opt database too old, app too old, or DB unreachable (10s)
+        App-->>Op: exit 1 + FATAL "Refusing to start: …", never serves
+    end
+    loop every 30s
+        HC->>App: GET 127.0.0.1:3000/api/health (4s timeout)
+        App->>DB: select 1 (2s timeout)
+        alt DB answers
+            App-->>HC: 200 {"status":"up"}
+            Note over HC: exit 0 → healthy
+        else DB down or slow
+            App-->>HC: 503 {"status":"down"}
+            Note over HC: exit 1 → unhealthy after 3 retries
+        end
+    end
+```
+
+The health endpoint itself is described in [Health check](/flows/health-check). The `HEALTHCHECK` script exists because distroless has no `curl`: Node's built-in `fetch` makes the call. The migrator caps its connect timeout at 10s, so an unreachable database fails fast. It logs only error messages, never the driver's full error object, which can carry connection details.
+
+## Testing the app image
+
+The Playwright suite in `e2e/` runs unchanged against a running container. Setting `PLAYWRIGHT_BASE_URL` turns off the config's `webServer` block (so no `next dev` starts), and the global setup derives its session cookie's domain from that URL. Global setup still seeds its user directly through `DATABASE_URL`, so the suite needs that variable to point at the same database the container uses. Run instructions are in the README.
+
+In CI, the `e2e` job does exactly this against the image the `build` job produced, so the suite exercises the standalone server and the Dockerfile, not `next dev`. On an arm64 runner it starts a fresh Postgres service container, migrates it with `npm run db:migrate` (drizzle-kit, as in local development) as the Postgres superuser, starts the app, and waits for `/api/health` to return 200. It then runs Playwright from the official `mcr.microsoft.com/playwright` image, at the same version as `@playwright/test`. Every container shares the host network, so the browser reaches the app at `http://localhost:3000`. That matters because the production session cookie is `Secure`, and Chrome accepts a `Secure` cookie over plain HTTP only on `localhost`. On failure, the job prints the app container's logs and keeps the Playwright HTML report as an artifact for 3 days.
+
+## Building in CI
+
+The CI `build` job builds the app image natively on an arm64 runner, with Docker layers cached in the GitHub Actions cache. Before the image leaves the job, Trivy scans it for embedded secrets: every layer's files and the image config (ENV, labels, build-arg history). Its built-in rules don't cover connection strings, so `trivy-secret.yaml` adds a custom rule for any URL with an embedded password, such as a `DATABASE_URL`.
+
+Any finding fails the job before the upload step, so a leaking image is never downloadable. The results go to GitHub Code Scanning even then. A clean image is uploaded as a `docker save` tarball artifact named `pensieve-image`. It's kept for 1 day as the hand-off to later jobs (on `main`, including `publish`), or 14 days on a push to `develop`, for inspection.
+
+Scanner false positives go in `trivy-secret.yaml` as allow rules, each with a reason and an expiry in its description. Trivy has no expiry field, so expired rules are reviewed by hand.
+
+A `trivy` job then downloads that artifact and scans it for known vulnerabilities: the Debian packages from the distroless base and the npm packages in the standalone bundle. It fails on any severity, but only when a fixed version exists, so nobody is blocked on an upstream CVE they can't act on. A deliberate exception goes in `.trivyignore` with its reason and an `exp:` date, which Trivy enforces. The vulnerability database comes from the `public.ecr.aws` mirror and is cached for a day. Results go to Code Scanning under their own category, separate from the secret scan. One gap: the distroless base installs Node from a tarball, not as a Debian package, so Trivy can't see the Node runtime's own version. Node stays patched through Dependabot's base-image digest updates.
+
+### Publishing to ECR
+
+On a push to `main` (a release), the `publish` job runs after every other job of `ci.yml` has passed. It never runs on a pull request. `publish` and the DB image's `publish-db` (below) use one shared local action, `.github/actions/publish-image`, so both images are published the same way, each to its own repository: `pensieve` for the app and `pensieve-db` for the DB image. It authenticates to AWS over GitHub OIDC as the ECR push role, which only `main` can assume, so no long-lived AWS key exists. `crane` then pushes the `pensieve-image` tarball itself, without a Docker daemon or a rebuild. The image config in ECR, and its digest, are therefore exactly the ones the gates scanned and tested.
+
+- **Tags:** `sha-<first 7 of the commit SHA>`, immutable, is the reference to deploy. `main` moves to each new release; the repository's tag immutability excludes `main` alone. There's no `latest` tag and no semver.
+- **Unchanged releases publish nothing:** if the image `main` points at already has this build's config digest, the job pushes and tags nothing, so `sha-*` tags mark real app versions. If a re-run finds its `sha-*` tag already pushed, it reuses it.
+- **Signing:** keyless cosign. The signing certificate is issued for the publishing workflow's own identity, `https://github.com/sgspinola/pensieve/.github/workflows/ci.yml@refs/heads/main` for the app (`db.yml` for the DB image) from `https://token.actions.githubusercontent.com`, and logged in the public Rekor log. The `sbom` job's CycloneDX SBOM goes on as a signed attestation (`cosign attest --type cyclonedx`). Both are stored as OCI 1.1 referrers of the image, not as `sha256-….sig` tags, so ECR keeps them while the image exists and removes them with it. `main` moves only once both exist.
+
+Deploys verify the image with `cosign verify` against that identity and issuer. The SBOM can be checked with `cosign verify-attestation --type cyclonedx`.
+
+### DB image (`db.yml`)
+
+The DB image has its own workflow, `.github/workflows/db.yml`. It runs on pull requests into `develop`/`main` and pushes to them, but only when one of the DB image's inputs changes: `drizzle/`, `db/` (including the image's own `db/Dockerfile.dockerignore`), `src/db/`, `certs/`, `drizzle.config.ts`, `package.json`, `package-lock.json`, `tsconfig.json` or the workflow itself. App-only changes skip it. Dependency bumps run it, since the image bundles npm packages. For the same reason its jobs aren't required checks in the rulesets, since a required check whose workflow never ran would block the PR. A failing run still shows on the PR.
+
+- **`db-image`** builds the DB image natively on an arm64 runner and scans it as the app image is scanned: Trivy's secret scan with `trivy-secret.yaml`, then its vulnerability scan with `.trivyignore`. Either finding fails the job, and both go to Code Scanning (`Secrets`, `Container SCA`). The migrator is a single esbuild bundle that Trivy can't see into, so this scan covers the distroless base. The npm packages bundled into it also ship in the app image, where the `trivy` job sees them. A clean image is uploaded as the `pensieve-db-image` artifact for 1 day. The job also writes the DB image's CycloneDX SBOM, kept 90 days as `pensieve-db-sbom`. The image has no `node_modules`, so the SBOM merges three sources:
+  - the npm packages esbuild actually bundled, read from an esbuild metafile, with versions from the lockfile via `npm sbom`
+  - Trivy's CycloneDX of the base's Debian packages
+  - the Node runtime's version, which the image reports itself (distroless installs Node from a tarball, which Trivy doesn't detect)
+
+  A bundled package missing from `npm sbom` fails the job.
+- **`db-grants`** runs the grants test (`db/bootstrap.test.ts`, see [Roles and grants](/architecture/database-schema#roles-and-grants)) against a `postgres:17-alpine` service container. `ci.yml`'s `unit` job also runs it, with the rest of the suite.
+- **`db-apply`** runs that image's migrator against a fresh `postgres:17-alpine` service container, applying every migration to an empty database. It then checks that Drizzle's bookkeeping table records as many migrations as the journal lists.
+- **`publish-db`**, on a push to `main` only, after every job above has passed. It publishes the scanned DB image to `pensieve-db` as `sha-<7>`, signed, with its SBOM as a signed attestation, exactly as [the app image is published](#publishing-to-ecr). Because of the path filter, it runs only on releases that touch one of the image's inputs. The DB image isn't built reproducibly, so each of those releases publishes, even one that only edited the workflow. If a release's run fails, re-run it: the next release that touches no DB input won't publish the image. `deploy-db` verifies it against the `db.yml` identity.

@@ -1,0 +1,19 @@
+# Ticket 30: the Node bootstrap every CI job shares, so it changes in one
+# place. Expects the repository to be checked out already (a local action
+# can't be loaded before checkout).
+name: Set up Node and install dependencies
+description: Node from .nvmrc with npm caching, the exact npm from package.json's engines, then npm ci.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version-file: .nvmrc
+        cache: npm
+    # package.json's engines.npm is the single source of the pinned npm
+    # version (the Dockerfile's builder stage installs the same one).
+    - shell: bash
+      run: npm install --global "npm@$(jq -r .engines.npm package.json)"
+    - shell: bash
+      run: npm ci

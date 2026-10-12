@@ -25,7 +25,7 @@ cookie resolves to a real, unexpired session row (`getSessionUser`) and
 stamping the resolved user (id/displayName/**role**) onto a trusted request
 header for downstream code to read. It never inspects that role itself to
 allow or deny a request — `/api/admin/invites` isn't in `proxy.ts`'s
-`PUBLIC_PATHS` allowlist (`proxy.ts:14-24`), so an unauthenticated caller
+`PUBLIC_PATHS` allowlist (`proxy.ts:22-36`), so an unauthenticated caller
 is rejected there, but *any* authenticated session — member or admin —
 passes `proxy.ts` equally.
 

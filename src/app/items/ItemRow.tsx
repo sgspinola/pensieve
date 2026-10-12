@@ -103,6 +103,10 @@ export function ItemRow({
   const isNotesTruncated = notesFullHeight !== null && notesCapPx !== null && notesFullHeight > notesCapPx;
   const notesCollapsedHeight = isNotesTruncated ? notesCapPx! : (notesFullHeight ?? undefined);
   const isPage = item.kind === "page";
+  // kindIcon() is a lookup into a module-level map of four lucide icons, so
+  // KindIcon's identity is stable across renders — the static-components
+  // lint rule (disabled at the JSX below) can't see through the call and
+  // assumes a freshly created component each time.
   const KindIcon = kindIcon(item.kind);
   const kindLabel = kindBadgeLabel(item.kind);
   const editInitialValues: ItemFormValues = {
@@ -296,6 +300,7 @@ export function ItemRow({
       <div className={styles.header}>
         <div className={styles.titleRow}>
           <span className={styles.kindIcon} role="img" aria-label={kindLabel} title={kindLabel}>
+            {/* eslint-disable-next-line react-hooks/static-components -- see KindIcon */}
             <KindIcon size={15} aria-hidden="true" />
           </span>
           <strong className={styles.title}>

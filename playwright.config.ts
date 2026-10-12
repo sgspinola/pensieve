@@ -6,7 +6,11 @@ import { defineConfig, devices } from "@playwright/test";
 // someone already has open. `reuseExistingServer` still lets you point this
 // at an already-running server on this port if you prefer.
 const PORT = process.env.PLAYWRIGHT_PORT ?? "3100";
-const baseURL = `http://localhost:${PORT}`;
+// Ticket 29: set PLAYWRIGHT_BASE_URL to run the suite against an
+// already-running app (e.g. the production container image) instead of
+// booting `next dev`; global setup still seeds through DATABASE_URL.
+const externalBaseURL = process.env.PLAYWRIGHT_BASE_URL;
+const baseURL = externalBaseURL ?? `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -16,6 +20,14 @@ export default defineConfig({
   reporter: "list",
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
+  // Ticket 26: specs and global setup/teardown seed data by importing server modules
+  // (db client, services) straight into this Node process. Those modules
+  // `import "server-only"`, which throws unless resolved with the
+  // `react-server` condition Next's own server bundles use — this tsconfig
+  // maps it to the package's no-op for the test runner only (Next never
+  // reads it), the same move vitest.config.ts makes with an alias. Its
+  // `paths` repeats `@/*` because `paths` replaces, not merges, the base's.
+  tsconfig: "./tsconfig.playwright.json",
   use: {
     baseURL,
     trace: "on-first-retry",
@@ -23,12 +35,14 @@ export default defineConfig({
   // Boots the real app (same DB this repo's Vitest suite already talks to
   // via DATABASE_URL) rather than mocking anything — these are smoke tests
   // for the actual rendered app, not a component harness.
-  webServer: {
-    command: `npm run dev -- -p ${PORT}`,
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: externalBaseURL
+    ? undefined
+    : {
+        command: `npm run dev -- -p ${PORT}`,
+        url: baseURL,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
   projects: [
     {
       name: "chromium",

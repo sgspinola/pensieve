@@ -1,3 +1,4 @@
+import "server-only";
 import type { Logger } from "@logtape/logtape";
 
 import type { CreatableItemKind } from "@/services/items/item-kinds";

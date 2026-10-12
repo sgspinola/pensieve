@@ -7,11 +7,12 @@
  *
  * Checks the error's `code` field by duck-typing rather than importing the
  * `postgres` package for an `instanceof postgres.PostgresError` check: this
- * module is reachable from client-bundled code (flashcards.ts, imported by
- * the "use client" FlashcardRow.tsx for canDeleteFlashcard), and `postgres`
- * itself needs Node's `tls`/`net` — importing it here broke the client
- * webpack build entirely ("Module not found: Can't resolve 'tls'") the
- * moment this file started being reachable from a client component.
+ * module was once reachable from client-bundled code (flashcards.ts, then
+ * imported by the "use client" FlashcardRow.tsx for canDeleteFlashcard, now
+ * in the pure permissions.ts), and `postgres` itself needs Node's
+ * `tls`/`net` — importing it here broke the client webpack build entirely
+ * ("Module not found: Can't resolve 'tls'"). Keeping it import-free stays
+ * the cheaper default.
  *
  * Also checks the constructor name is "PostgresError" (not just the `code`
  * value) so an unrelated error that happens to carry a `.code === "23505"`
