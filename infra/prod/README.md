@@ -117,7 +117,30 @@ running, it leaves the app stopped: check the migrate log group, then start
 the app with `deploy-app`. The first deploy's count is 0, so the app stays down until
 `deploy-app` starts it. The run summary says what happened.
 
-`scripts/lib/deploy.sh` holds what this and `db-bootstrap.sh` share
+## Deploying the app
+
+Ticket 52 (spec 12). App releases go through the `deploy-app` workflow
+(Actions → deploy-app → Run workflow, on `main`), with `app_sha` the `main`
+commit whose release published the image. It waits for your approval in the
+`prod-app` Environment and runs `scripts/deploy-app.sh` as the `deploy-app`
+role (ARN in that Environment's `DEPLOY_APP_ROLE_ARN` variable), which can't
+touch the database.
+
+It verifies the image, registers a `pensieve-app` revision from the latest
+with only the app image changed, and points the service at it, at desired
+count 1 on the first deploy, then waits until it's stable. Downtime is about
+one Fargate cold start. If the new task never turns healthy (including the
+startup schema check refusing a schema it can't run on), the circuit breaker
+rolls back and the run fails with a link to the app log group. An app that
+needs a schema change ships after `deploy-db`, or with it for a breaking
+change (`deploy-db` with `app_sha`).
+
+Both workflows run their script through `.github/actions/deploy` (assume
+the role once, cosign as its pinned image) and share one concurrency group,
+so two prod deploys never overlap.
+
+`scripts/lib/deploy.sh` holds what the three scripts share
 (verifying images, registering a revision from the family's latest with only
-the image changed, running a one-off task, updating the service). New
+the image changed, running a one-off task, updating the service and checking
+it settled). New
 revisions carry no tags: the deploy roles may not tag.
