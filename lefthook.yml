@@ -9,4 +9,8 @@ pre-commit:
       # (without --branch it also walks every other ref, stashes included),
       # with the same strictness as CI: verified, unknown and unverified
       # results all block.
-      run: trufflehog git file://. --since-commit HEAD --branch HEAD --results=verified,unknown,unverified --fail --no-update
+      # `env -u GIT_INDEX_FILE`: git hands hooks the index path, which in a
+      # linked worktree is absolute, and TruffleHog's own git calls (on its
+      # temporary clone) would then reset that worktree's index, so the
+      # commit records nothing.
+      run: env -u GIT_INDEX_FILE trufflehog git file://. --since-commit HEAD --branch HEAD --results=verified,unknown,unverified --fail --no-update
