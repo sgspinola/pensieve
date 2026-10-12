@@ -6,14 +6,16 @@
 
 **Status:** in-review
 
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/71
+
 - [x] ECS cluster and one service: Fargate ARM64, 0.25 vCPU / 1 GB, desired count 0, deployment 0%/100% with circuit-breaker rollback, `ignore_changes` on task definition and desired count
 - [x] App task definition: app + `cloudflared` sidecar, health check via the image's Node health script, `awslogs` to the right log groups, WebAuthn RP ID `pensieve.fyi` and origin `https://pensieve.fyi`, and IAM DB connection env vars (ticket 40)
 - [x] Migrate and db-bootstrap task definitions on the DB image
 - [x] Task roles: app may `rds-db:connect` only as the app user; migrate only as the migrator user. Only the bootstrap ~~task role~~ family's execution role can read the RDS master secret (revised: ECS injects `secrets` with the execution role; see spec 11, "Database")
 - [x] Cloudflare tunnel, ingress config and apex DNS record for `pensieve.fyi`, Full (strict) SSL. Every attribute or output carrying the tunnel token is sensitive; the token reaches the sidecar via Secrets Manager
 - [x] Manual: the maintainer creates the `prod-app` and `prod-db` Environments (required reviewer, `main` only). Verified with `gh api`: both require the maintainer's review and allow only the `main` branch. CI's plan token already has the read permissions it needs
-- [ ] Manual: the maintainer provides a Cloudflare API token for local applies (permissions in `infra/prod/README.md`)
-- [ ] CI plan shows no secret values; applied by the maintainer with the service at 0 tasks
+- [x] Manual: the maintainer provides a Cloudflare API token for local applies (permissions in `infra/prod/README.md`)
+- [x] CI plan shows no secret values; applied by the maintainer with the service at 0 tasks. Applied (22 added, nothing changed or destroyed). The service is `ACTIVE` at 0 desired and 0 running on `pensieve-app:1`. PR #71's `iac` plan ran with the read-only token and reported no changes
 - [ ] First successful app→RDS connection (with the first deploy), which also proves ticket 48's in-VPC reachability: then tick 48's last item, mark it `done` and archive it in this ticket's PR
 
 **Implementation notes:**
