@@ -11,7 +11,7 @@
 - [x] Registers a new revision from the ~~current one~~ family's latest (so Terraform's own task-definition changes aren't lost; see ticket 49) with only the image changed, updates the service, and sets desired count 1 if it's 0
 - [x] Waits for stability. On circuit-breaker rollback (including a startup check refusal) it fails with a summary linking the app log group
 - [x] Never calls Terraform, snapshots or migrates
-- [ ] Verified by a real run (covered with the first deploy in ticket 56) and one deliberate run with an unsigned or tampered image that fails at `cosign verify`
+- [ ] Verified by a real run (covered with the first deploy in ticket 56) and one deliberate run with an unsigned or tampered image that fails at `cosign verify`. Real run: done on 2026-10-12 (`sha-3a0ad38`, run 38299231421: `pensieve-app:2` at 1 task, rollout completed, the app live at `https://pensieve.fyi`). The tampered-image run is still to do
 - [x] Manual: the `prod-app` Environment has a `DEPLOY_APP_ROLE_ARN` variable (checked against `terraform output role_arns`)
 
 **Implementation notes:**
