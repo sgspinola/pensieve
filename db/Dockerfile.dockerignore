@@ -1,0 +1,36 @@
+# Ticket 50: the DB image's own build context denylist. BuildKit reads
+# <Dockerfile>.dockerignore in place of the root .dockerignore, which now
+# also leaves out db/ and other non-app inputs so an unchanged app builds an
+# identical app image. The security entries (.env*, *.pem and the CA bundle
+# exception) must stay the same in both files.
+#
+# Denylist build context for the production image (ticket 29).
+#
+# `.env*` is the critical entry: `next build` copies `.env` and
+# `.env.production` into `.next/standalone`, so a local env file left in the
+# context would ship inside the image.
+.env*
+*.pem
+# Ticket 40: the public RDS CA bundle the image verifies RDS TLS against.
+!certs/rds-global-bundle.pem
+
+# VCS, dependencies and build output: rebuilt inside the image.
+.git
+node_modules
+.next
+dist
+
+# Local tooling, test and log output.
+coverage
+logs
+e2e/.auth
+test-results
+playwright-report
+blob-report
+graphify-out
+docs/.vitepress/cache
+docs/.vitepress/dist
+.claude
+.venv
+*.tsbuildinfo
+TODO.md
