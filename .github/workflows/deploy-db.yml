@@ -1,0 +1,105 @@
+# Ticket 54: the database's maintenance window (spec 13, "`deploy-db`
+# workflow"). Dispatched by hand from main, it waits for the maintainer's
+# approval (the `prod-db` Environment: required reviewer, main only), then
+# runs scripts/deploy-db.sh as the deploy-db role, which can migrate and
+# restart the app but can't touch the master secret, the bootstrap task or
+# any backup but pre-deploy snapshots (infra/bootstrap/iam-deploy-db.tf).
+#
+# Dispatch with `db_sha` alone for an additive migration (the app restarts
+# on its current revision), or with `app_sha` too for a breaking one (the
+# app restarts on that version). See the script's header for the steps and
+# what happens when one fails.
+#
+# Same baseline as ci.yml: least-privilege permissions, actions pinned to a
+# full commit SHA, checkout without persisted credentials, tools the runner
+# doesn't ship run as digest-pinned images (cosign; the AWS CLI and jq are
+# the runner's, as in .github/actions/publish-image), a timeout and a short
+# $GITHUB_STEP_SUMMARY.
+name: deploy-db
+
+on:
+  workflow_dispatch:
+    inputs:
+      db_sha:
+        description: "DB image to migrate with: the main commit whose release published it (sha-<7> in pensieve-db)"
+        required: true
+        type: string
+      app_sha:
+        description: "Breaking migrations only: the app version that expects it (sha-<7> in pensieve). Allows breaking migrations."
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+# One prod deploy at a time, app or database (deploy-app shares the group),
+# and never cancelled halfway through a maintenance window.
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-db:
+    name: deploy-db
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    # Normally minutes. Inside the role session's hour; a run killed by the
+    # timeout skips the script's restore, leaving the app at 0 tasks (the
+    # summary shows how far it got): dispatch deploy-app to start it.
+    timeout-minutes: 55
+    environment: prod-db
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Deploy
+        env:
+          ROLE_ARN: ${{ vars.DEPLOY_DB_ROLE_ARN }}
+          DB_SHA: ${{ inputs.db_sha }}
+          APP_SHA: ${{ inputs.app_sha }}
+          # Bump with .github/actions/publish-image's (tag and digest together).
+          COSIGN_IMAGE: ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8
+        run: |
+          # GitHub's OIDC token lives about five minutes, so assume the role
+          # once, for an hour, rather than have each aws call re-read it.
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$token"
+          creds=$(aws sts assume-role-with-web-identity --role-arn "$ROLE_ARN" \
+            --role-session-name "deploy-db-$GITHUB_RUN_ID" --web-identity-token "$token" \
+            --duration-seconds 3600 --query Credentials --output json)
+          AWS_ACCESS_KEY_ID=$(jq -r .AccessKeyId <<<"$creds")
+          AWS_SECRET_ACCESS_KEY=$(jq -r .SecretAccessKey <<<"$creds")
+          AWS_SESSION_TOKEN=$(jq -r .SessionToken <<<"$creds")
+          echo "::add-mask::$AWS_SECRET_ACCESS_KEY"
+          echo "::add-mask::$AWS_SESSION_TOKEN"
+          export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+
+          # The repository allows only GitHub-owned actions, so cosign runs as
+          # its pinned image behind a `cosign` on PATH. The script points
+          # DOCKER_CONFIG at its scratch directory, where cosign logs in to
+          # ECR: that directory is mounted for cosign, but the docker CLI
+          # running it keeps its own config. cosign caches Sigstore's trust
+          # root under HOME.
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/cosign-home"
+          cat >"$RUNNER_TEMP/bin/cosign" <<'SHIM'
+          #!/usr/bin/env bash
+          config=$DOCKER_CONFIG
+          mkdir -p "$config"
+          exec env -u DOCKER_CONFIG docker run --rm -i --user "$(id -u):$(id -g)" \
+            -e HOME=/cosign-home -e DOCKER_CONFIG=/docker \
+            -v "$RUNNER_TEMP/cosign-home:/cosign-home" -v "$config:/docker" "$COSIGN_IMAGE" "$@"
+          SHIM
+          chmod +x "$RUNNER_TEMP/bin/cosign"
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+
+          # The inputs reach the script as arguments, never as code; it
+          # rejects anything but hex SHAs.
+          if [ -n "$APP_SHA" ]; then
+            scripts/deploy-db.sh "$DB_SHA" "$APP_SHA"
+          else
+            scripts/deploy-db.sh "$DB_SHA"
+          fi

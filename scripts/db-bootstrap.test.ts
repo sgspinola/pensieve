@@ -1,16 +1,10 @@
-import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type Replies, createStubCli, fileInput, flag, isEcs, json, named } from "./test-support/stub-cli";
 
 /**
  * Ticket 53 (spec 13, "Local script"): scripts/db-bootstrap.sh, run for real
- * with stub `aws` and `cosign` executables first on PATH. Each stub logs its
- * arguments (and the contents of any file:// argument) and answers from a
- * canned table keyed by "<tool> <subcommand…>", so the tests see exactly
- * what the script would have asked AWS and Sigstore, in order, without
- * touching either.
+ * against stub `aws` and `cosign` executables (./test-support/stub-cli.ts).
  */
 
 const SCRIPT = path.join(process.cwd(), "scripts", "db-bootstrap.sh");
@@ -60,35 +54,27 @@ const CURRENT_TD = {
   registeredAt: "2026-10-01T10:00:00.000Z",
   registeredBy: `arn:aws:iam::${ACCOUNT}:user/pensieve-admin`,
 };
-const TAGS = [
-  { key: "Project", value: "pensieve" },
-  { key: "ManagedBy", value: "terraform" },
-];
+// New revisions carry no tags: neither deploy role may tag
+// (ecs:TagResource), so the scripts share one behaviour and don't ask for them.
 const NETWORK = {
   awsvpcConfiguration: { subnets: ["subnet-0aaa"], securityGroups: ["sg-0bbb"], assignPublicIp: "DISABLED" },
 };
 
-type Reply = { stdout?: string; exit?: number };
-type Call = { cmd: string; args: string[]; files: Record<string, string> };
-
-function json(value: unknown): Reply {
-  return { stdout: JSON.stringify(value) };
-}
-
-function happyReplies(exitCode: number | null = 0): Record<string, Reply> {
+function happyReplies(exitCode: number | null = 0): Replies {
   return {
     "aws sts get-caller-identity": json({ Account: ACCOUNT, Arn: `arn:aws:iam::${ACCOUNT}:user/pensieve-admin` }),
     "aws ecr describe-images": json({ imageDetails: [{ imageDigest: DIGEST, imageTags: ["sha-1234567"] }] }),
     "aws ecr get-login-password": { stdout: "ecr-token" },
     "cosign login": {},
     "cosign verify": json([{ critical: {} }]),
-    "aws ecs describe-task-definition": json({ taskDefinition: CURRENT_TD, tags: TAGS }),
+    "aws ecs describe-task-definition": json({ taskDefinition: CURRENT_TD }),
     "aws ecs register-task-definition": json({
       taskDefinition: { ...CURRENT_TD, taskDefinitionArn: NEW_TD_ARN, revision: 8 },
     }),
     "aws ecs describe-services": json({ services: [{ serviceName: "pensieve", networkConfiguration: NETWORK }] }),
     "aws ecs run-task": json({ tasks: [{ taskArn: TASK_ARN }], failures: [] }),
     "aws ecs wait": {},
+    "aws logs get-log-events": json({ events: [{ message: "Bootstrap applied" }] }),
     "aws ecs describe-tasks": json({
       tasks: [
         {
@@ -102,73 +88,17 @@ function happyReplies(exitCode: number | null = 0): Record<string, Reply> {
   };
 }
 
-// A Node stub: logs argv (with file:// contents) as one JSON line, then
-// answers with the longest matching key of the replies table.
-const STUB = `#!/usr/bin/env node
-const fs = require("node:fs");
-const cmd = require("node:path").basename(process.argv[1]);
-const args = process.argv.slice(2);
-const files = {};
-for (const a of args) if (a.startsWith("file://")) files[a] = fs.readFileSync(a.slice(7), "utf8");
-fs.appendFileSync(process.env.STUB_LOG, JSON.stringify({ cmd, args, files }) + "\\n");
-const replies = JSON.parse(fs.readFileSync(process.env.STUB_REPLIES, "utf8"));
-const words = [cmd, ...args.filter((a) => !a.startsWith("-"))];
-for (let n = words.length; n > 0; n--) {
-  const reply = replies[words.slice(0, n).join(" ")];
-  if (reply) {
-    if (reply.stdout) process.stdout.write(reply.stdout);
-    process.exit(reply.exit ?? 0);
-  }
-}
-process.stderr.write("stub: no reply for " + words.join(" ") + "\\n");
-process.exit(99);
-`;
-
-let dir: string;
+let cli: ReturnType<typeof createStubCli>;
 
 beforeEach(() => {
-  dir = mkdtempSync(path.join(tmpdir(), "db-bootstrap-test-"));
-  for (const tool of ["aws", "cosign"]) {
-    writeFileSync(path.join(dir, tool), STUB);
-    chmodSync(path.join(dir, tool), 0o755);
-  }
+  cli = createStubCli();
 });
 
 afterEach(() => {
-  rmSync(dir, { recursive: true, force: true });
+  cli.cleanup();
 });
 
-function run(args: string[], replies: Record<string, Reply> = happyReplies()) {
-  writeFileSync(path.join(dir, "replies.json"), JSON.stringify(replies));
-  writeFileSync(path.join(dir, "calls.log"), "");
-  const result = spawnSync("bash", [SCRIPT, ...args], {
-    encoding: "utf8",
-    // A clean environment: no real AWS profile or Docker config leaks in.
-    env: {
-      NODE_ENV: "test",
-      PATH: `${dir}:${process.env.PATH}`,
-      HOME: dir,
-      STUB_LOG: path.join(dir, "calls.log"),
-      STUB_REPLIES: path.join(dir, "replies.json"),
-    },
-  });
-  const calls: Call[] = readFileSync(path.join(dir, "calls.log"), "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
-  return { status: result.status, output: result.stdout + result.stderr, calls };
-}
-
-const isEcs = (c: Call) => c.cmd === "aws" && c.args[0] === "ecs";
-const named = (calls: Call[], cmd: string, ...sub: string[]) =>
-  calls.filter((c) => c.cmd === cmd && sub.every((s, i) => c.args[i] === s));
-
-/** The value following `flag` in a call's arguments. */
-function flag(call: Call, name: string): string {
-  const i = call.args.indexOf(name);
-  expect(i, `${name} in ${call.args.join(" ")}`).toBeGreaterThanOrEqual(0);
-  return call.args[i + 1];
-}
+const run = (args: string[], replies: Replies = happyReplies()) => cli.run(SCRIPT, args, replies);
 
 describe("db-bootstrap.sh", () => {
   it("verifies the image by digest against db.yml's main identity before any ECS call", () => {
@@ -212,7 +142,7 @@ describe("db-bootstrap.sh", () => {
 
     const registers = named(calls, "aws", "ecs", "register-task-definition");
     expect(registers).toHaveLength(1);
-    const input = JSON.parse(Object.values(registers[0].files)[0]);
+    const input = fileInput(registers[0]);
     const [container] = CURRENT_TD.containerDefinitions;
     expect(input).toEqual({
       family: "pensieve-db-bootstrap",
@@ -223,7 +153,6 @@ describe("db-bootstrap.sh", () => {
       memory: "1024",
       runtimePlatform: CURRENT_TD.runtimePlatform,
       containerDefinitions: [{ ...container, image: IMAGE }],
-      tags: TAGS,
     });
   });
 
@@ -234,7 +163,6 @@ describe("db-bootstrap.sh", () => {
         ...CURRENT_TD,
         containerDefinitions: [{ ...CURRENT_TD.containerDefinitions[0], image: IMAGE }],
       },
-      tags: TAGS,
     });
     const { status, calls } = run(["1234567"], replies);
 
@@ -270,6 +198,22 @@ describe("db-bootstrap.sh", () => {
     expect(status).toBe(0);
     expect(output).toContain("/ecs/pensieve-db-bootstrap");
     expect(output).toContain("db_bootstrap/db-bootstrap/0123456789abcdef0123456789abcdef");
+  });
+
+  it("prints the task's own log output", () => {
+    const { status, output, calls } = run(["1234567"]);
+
+    expect(status).toBe(0);
+    const logs = named(calls, "aws", "logs", "get-log-events")[0];
+    expect(flag(logs, "--log-group-name")).toBe("/ecs/pensieve-db-bootstrap");
+    expect(flag(logs, "--log-stream-name")).toBe("db_bootstrap/db-bootstrap/0123456789abcdef0123456789abcdef");
+    expect(output).toContain("Bootstrap applied");
+  });
+
+  it("still succeeds when the log output can't be read", () => {
+    const { status } = run(["1234567"], { ...happyReplies(), "aws logs get-log-events": { exit: 255 } });
+
+    expect(status).toBe(0);
   });
 
   it("exits non-zero, still printing the logs, when the container exits non-zero", () => {
