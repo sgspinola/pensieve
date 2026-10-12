@@ -89,4 +89,35 @@ touching ECS, registers a `pensieve-db-bootstrap` revision from the latest
 one with only the image changed (pinned by digest; a re-run on the same
 image reuses it), runs it in the service's subnet and security group, waits
 for it to stop, and exits non-zero unless the container exited 0. Either way
-it prints the CloudWatch log group and stream.
+it prints the task's log output and its CloudWatch log group and stream.
+
+## Deploying the database
+
+Ticket 54 (spec 13). Migrations run only through the `deploy-db` workflow
+(Actions → deploy-db → Run workflow, on `main`), which waits for your
+approval in the `prod-db` Environment and then runs `scripts/deploy-db.sh`
+as the `deploy-db` role. The role's ARN is the `prod-db` Environment's
+`DEPLOY_DB_ROLE_ARN` variable (from `terraform output role_arns` in
+`infra/bootstrap`).
+
+- **Additive migration:** `db_sha` only. The app restarts on its current
+  revision afterwards.
+- **Breaking migration:** `db_sha` and `app_sha`, the app version that
+  expects it. Without `app_sha` the migrator refuses a breaking migration,
+  and the app comes back unchanged.
+
+It verifies the image(s), records the service's revision and desired count,
+scales it to 0, snapshots the database (`pensieve-predeploy-<db-sha>-<UTC
+time>`), runs the migrator as a one-off task, then starts the app again at
+the recorded count and deletes the older pre-deploy snapshots. A failed or
+refused migration changes nothing and restores the app; if the app doesn't
+stabilise after a migration, the run fails and points to the restore
+runbook. If it gives up waiting for the migrator, which may still be
+running, it leaves the app stopped: check the migrate log group, then start
+the app with `deploy-app`. The first deploy's count is 0, so the app stays down until
+`deploy-app` starts it. The run summary says what happened.
+
+`scripts/lib/deploy.sh` holds what this and `db-bootstrap.sh` share
+(verifying images, registering a revision from the family's latest with only
+the image changed, running a one-off task, updating the service). New
+revisions carry no tags: the deploy roles may not tag.
