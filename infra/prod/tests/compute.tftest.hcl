@@ -176,8 +176,6 @@ run "one_off_task_definitions" {
         PGHOST     = aws_db_instance.main.address
         PGPORT     = tostring(aws_db_instance.main.port)
         PGDATABASE = "pensieve"
-        # Ticket 62, temporary: the recovery logs in as the master over IAM.
-        BOOTSTRAP_AUTH = "iam"
       } &&
       jsondecode(aws_ecs_task_definition.db_bootstrap.container_definitions)[0].secrets == [
         { name = "PGUSER", valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:username::" },
@@ -230,30 +228,14 @@ run "task_roles" {
   assert {
     # The one principal that reads the master secret: ECS injects `secrets`
     # with the execution role's credentials, so that's the role that needs
-    # it.
+    # it. No task role (the bootstrap container needs no AWS access).
     condition = (
-      [for p in [aws_iam_role_policy.app_task, aws_iam_role_policy.app_execution, aws_iam_role_policy.migrate_task, aws_iam_role_policy.migrate_execution, aws_iam_role_policy.db_bootstrap_execution, aws_iam_role_policy.db_bootstrap_task] : p.role
+      [for p in [aws_iam_role_policy.app_task, aws_iam_role_policy.app_execution, aws_iam_role_policy.migrate_task, aws_iam_role_policy.migrate_execution, aws_iam_role_policy.db_bootstrap_execution] : p.role
         if strcontains(p.policy, aws_db_instance.main.master_user_secret[0].secret_arn)
-      ] == [aws_iam_role.db_bootstrap_execution.id]
+      ] == [aws_iam_role.db_bootstrap_execution.id] &&
+      aws_ecs_task_definition.db_bootstrap.task_role_arn == null
     )
     error_message = "Only the db-bootstrap family's role can read the RDS master secret."
-  }
-
-  assert {
-    # Ticket 62, temporary: the recovery's IAM login as the master. Only the
-    # db-bootstrap family has it (no deploy role may pass pensieve-db-bootstrap*
-    # roles), and no other role may connect as the master.
-    condition = (
-      aws_iam_role.db_bootstrap_task.name == "pensieve-db-bootstrap-task" &&
-      aws_ecs_task_definition.db_bootstrap.task_role_arn == aws_iam_role.db_bootstrap_task.arn &&
-      jsondecode(aws_iam_role_policy.db_bootstrap_task.policy).Statement == [{
-        Effect   = "Allow"
-        Action   = "rds-db:connect"
-        Resource = "arn:aws:rds-db:eu-north-1:123456789012:dbuser:db-MOCKRESOURCEID/pensieve_master"
-      }] &&
-      length([for p in [aws_iam_role_policy.app_task, aws_iam_role_policy.migrate_task] : p if strcontains(p.policy, "/pensieve_master")]) == 0
-    )
-    error_message = "Only the db-bootstrap task role may rds-db:connect as the master, and only as the master."
   }
 
   assert {

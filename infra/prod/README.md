@@ -94,11 +94,13 @@ it prints the task's log output and its CloudWatch log group and stream.
 **The master's password login (ticket 62).** The first prod bootstrap left
 the master holding the migrator's privileges, so RDS made it IAM-only and
 every later run failed with `PAM authentication failed`. The bootstrap now
-gives that membership up before committing. To recover, the
-`pensieve-db-bootstrap` family temporarily has a task role that may connect
-as the master over IAM (`iam.tf`) and `BOOTSTRAP_AUTH=iam`, so one run of the
-fixed image logs in that way and revokes the membership. Once a normal run
-works again, both come out.
+gives that membership up before committing. Recovering prod was a one-off,
+run locally as the admin user and not kept in this repository. The admin
+signs an IAM token for the master, which works while the master is IAM-only.
+A temporary one-off task in the service's subnet, using `postgres:17-alpine`
+and the bootstrap's execution role, runs the `REVOKE`, then checks the
+password login. Don't run `db-bootstrap.sh` with an image older than this
+fix: its SQL would lock the master out again.
 
 ## Deploying the database
 

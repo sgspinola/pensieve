@@ -4,10 +4,8 @@
 #   app           connects to RDS as pensieve_app; its execution role reads
 #                 the tunnel token
 #   migrate       connects to RDS as pensieve_migrator
-#   db-bootstrap  its execution role is the only one that reads the RDS master
-#                 secret, which ECS injects as PGUSER/PGPASSWORD. Its task role
-#                 is temporary (ticket 62): it may connect as the master over
-#                 IAM, for one recovery run
+#   db-bootstrap  no task role; its execution role is the only one that reads
+#                 the RDS master secret, which ECS injects as PGUSER/PGPASSWORD
 # The deploy roles (infra/bootstrap) may pass the app and migrate roles by
 # name, and none of the db-bootstrap ones.
 #
@@ -168,30 +166,3 @@ resource "aws_iam_role_policy" "db_bootstrap_execution" {
     ]
   })
 }
-
-# Ticket 62, temporary. The first bootstrap left the master a member of
-# pensieve_migrator, which holds rds_iam, so RDS refuses its password: the
-# recovery run logs in as the master with an IAM token instead (bootstrap.cjs
-# with BOOTSTRAP_AUTH=iam, compute.tf) and runs the fixed bootstrap, which
-# gives the membership up. Remove this role, its policy and the task
-# definition's task role and BOOTSTRAP_AUTH once a password-mode run works.
-# No deploy role may pass it (infra/bootstrap leaves pensieve-db-bootstrap*
-# out).
-resource "aws_iam_role" "db_bootstrap_task" {
-  name               = local.roles.db_bootstrap_task
-  assume_role_policy = local.ecs_tasks_trust
-}
-
-resource "aws_iam_role_policy" "db_bootstrap_task" {
-  name = "connect-as-master"
-  role = aws_iam_role.db_bootstrap_task.id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = "rds-db:connect"
-      Resource = "arn:aws:rds-db:${local.region}:${local.account_id}:dbuser:${aws_db_instance.main.resource_id}/${aws_db_instance.main.username}"
-    }]
-  })
-}
-
