@@ -43,7 +43,7 @@ Only the right-hand box ships. The builder stage holds the full toolchain and de
 - **No `sharp`.** `sharp` is an optional dependency of `next` that the server trace would otherwise pull in, along with its native libvips. Nothing uses `next/image`, so `images.unoptimized` turns off the optimizer and `outputFileTracingExcludes["next-server"]` drops `sharp`/`@img` from the trace.
 - **Same inputs, same image.** The build context leaves out everything the app isn't built from: tickets, docs, infra, CI, the DB image, tests and tooling config. CI also builds with a fixed `SOURCE_DATE_EPOCH`, so the image config carries no build time. A release that changes none of the app's inputs therefore rebuilds from cache into an image with the same config digest, and [publishing](#publishing-to-ecr) skips it. That takes a warm layer cache: on a cache miss, `next build` produces a new build ID and the image differs anyway, so an unchanged release publishes a functionally identical new image.
 - **Bundled healthcheck.** The standalone trace only follows what the server imports, so esbuild bundles `src/ops/healthcheck.ts` into a self-contained CommonJS file. The runtime needs no `tsx`.
-- **Migration journal, not migrations.** The image carries `drizzle/meta/_journal.json`, the list of migration tags this build was made against, and none of the SQL. It's there for the app's startup schema check (spec 13).
+- **Migration journal, not migrations.** The image carries `drizzle/meta/_journal.json`, the list of migration tags this build was made against, and none of the SQL. It's there for the app's [startup schema check](/flows/startup-schema-check) (spec 13).
 - **RDS CA bundle.** In AWS the app and the DB image's migrator connect with RDS IAM auth instead of a `DATABASE_URL`, which requires TLS. `certs/rds-global-bundle.pem` is AWS's public RDS CA bundle, committed to the repo and copied into both images, and the connection helper verifies the database's certificate against it. It's the one `*.pem` the `.gitignore` and `.dockerignore` let through.
 - **Hardening.** The runtime base has no shell or package manager and runs as distroless's `nonroot` user, set by number (`65532`) so a runtime can verify it isn't root. Application files are root-owned, so the app user can only read them. The one writable path is `.next/cache`. Both base images are pinned by multi-arch index digest.
 
@@ -76,7 +76,7 @@ flowchart LR
 - **Only the database's entrypoints.** The builder copies in just what the bundles import (`db/`, `src/db/` and `tsconfig.json` for the `@/` alias), and esbuild bundles `db/migrate.ts` and `db/bootstrap.ts`, each with postgres.js and the `src/db/connection.ts` helper (including the AWS RDS signer), into self-contained CommonJS files. The runtime needs neither drizzle-kit nor `node_modules`.
 - **Its default command migrates.** `docker run <db-image>` runs `migrate.cjs`, which applies the pending migrations under `drizzle/` and exits 0, or 1 on any failure. drizzle-orm's own `migrate()` decides what's pending and applies it, so the image and drizzle-kit always agree on what's applied. It runs inside one transaction the migrator owns, where drizzle's own transaction becomes a savepoint. The checks below then run on the rows `migrate()` added to Drizzle's bookkeeping table.
   - **Breaking migrations are refused by default.** If any migration in the batch has a SQL file starting with `-- pensieve:breaking`, it exits 1 naming them, unless `ALLOW_BREAKING=true` (see the README's "Additive or breaking?"). The refusal rolls the transaction back, so nothing is applied.
-  - **`pensieve_meta.schema_compat`.** In the same transaction it upserts this single-row table with the tag of the newest breaking migration ever applied (null if none). The app's startup check (ticket 44) will read it.
+  - **`pensieve_meta.schema_compat`.** In the same transaction it upserts this single-row table with the tag of the newest breaking migration ever applied (null if none). The app's [startup schema check](/flows/startup-schema-check) reads it.
   - A failure anywhere rolls the whole batch back. It connects through the same helper as the app: `DATABASE_URL` when it's set, RDS IAM auth from the `PG*` variables otherwise.
 - **`bootstrap.cjs` creates the roles and grants.** `docker run <db-image> bootstrap.cjs` runs `db/bootstrap.sql` in one transaction, so a failure changes nothing (see [Roles and grants](/architecture/database-schema#roles-and-grants)). In AWS it logs in as the RDS master user, with the user and password ECS injects from the RDS-managed master secret (the helper's password mode, still over verified TLS). It runs only as a one-off task the maintainer launches, never from CI.
 - **Everything is read-only.** No path in the image is writable by the `nonroot` user, and nothing needs to be.
@@ -108,6 +108,10 @@ sequenceDiagram
     end
 
     Op->>App: docker run <app-image> (DATABASE_URL or PG* vars, PORT=3000)
+    App->>DB: startup schema check: bookkeeping rows + schema_compat vs. the image's journal
+    opt database too old, app too old, or DB unreachable (10s)
+        App-->>Op: exit 1 + FATAL "Refusing to start: …", never serves
+    end
     loop every 30s
         HC->>App: GET 127.0.0.1:3000/api/health (4s timeout)
         App->>DB: select 1 (2s timeout)
