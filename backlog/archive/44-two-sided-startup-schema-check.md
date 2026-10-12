@@ -4,7 +4,11 @@
 
 **Blocked by:** 42 (app role `SELECT` grants), 43 (`schema_compat` table)
 
-**Status:** in-review
+**Status:** done
+
+**Completed:** on `feat/44-two-sided-startup-schema-check`
+
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/73
 
 - [x] The check runs once at app startup, before the app serves traffic, and a failure exits the process with a clear logged reason
 - [x] It accepts an exact match and a database ahead only by additive migrations
