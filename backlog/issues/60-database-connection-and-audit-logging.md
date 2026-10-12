@@ -2,7 +2,7 @@
 
 **What to build:** After an incident, the maintainer can see who connected to Postgres as which role, failed IAM-auth attempts, and every role, grant or schema change, without user data (note contents) ever reaching the logs. The prod RDS instance gets a parameter group with connection logging and pgaudit, and exports its logs to CloudWatch. The DB bootstrap SQL creates the pgaudit extension. Investigation only, no alerting. There's no spec: the decisions come from the security-logging analysis.
 
-**Blocked by:** 48 (RDS instance)
+**Blocked by:** 48 (RDS instance); 62 for its real-bootstrap verification (the master can't run the bootstrap again until 62's fix)
 
 **Status:** ready-for-agent
 
