@@ -94,14 +94,14 @@ sequenceDiagram
     participant DB as Postgres
 
     Op->>Mig: docker run <db-image> (DATABASE_URL, or PG* vars for RDS IAM)
-    Mig->>DB: BEGIN; note the newest bookkeeping row
+    Mig->>DB: BEGIN, note the newest bookkeeping row
     Mig->>DB: drizzle migrate() in a savepoint: pending SQL + bookkeeping rows
     Mig->>DB: read the rows migrate() added
     alt one of them is breaking and ALLOW_BREAKING isn't "true"
         Mig->>DB: ROLLBACK (migrate()'s work included)
         Mig-->>Op: exit 1 + "breaking migration(s) pending: <tags>"
     else
-        Mig->>DB: upsert pensieve_meta.schema_compat; COMMIT
+        Mig->>DB: upsert pensieve_meta.schema_compat, COMMIT
         Mig-->>Op: exit 0 (also when nothing was pending)
     else unreachable DB, bad SQL, no DATABASE_URL or PG* vars
         Mig-->>Op: exit 1 + "Migration failed: … (cause)", nothing applied
