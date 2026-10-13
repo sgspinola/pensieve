@@ -235,7 +235,8 @@ export function FlashcardsManager({
               <Plus size={14} aria-hidden="true" />
               Add flashcard
             </Link>
-            <Link className={styles.actionLink} href="/flashcards/study">
+            {/* Carries the current tag filter into Study so it starts pre-selected there. */}
+            <Link className={styles.actionLink} href={buildTagsUrl("/flashcards/study", tagsFilter)}>
               <GraduationCap size={14} aria-hidden="true" />
               Study
             </Link>

@@ -39,9 +39,17 @@ const BOUNDARY_SWIPE_THRESHOLD_PX = 80;
  * all use to drive Embla's `scrollTo` — every input method ends up moving
  * the same carousel rather than each implementing its own navigation.
  */
-export function StudySession({ flashcards, tags }: { flashcards: SerializedFlashcard[]; tags: string[] }) {
+export function StudySession({
+  flashcards,
+  tags,
+  initialSelectedTags,
+}: {
+  flashcards: SerializedFlashcard[];
+  tags: string[];
+  initialSelectedTags: string[];
+}) {
   const [stage, setStage] = useState<Stage>("selecting");
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedTags, setSelectedTags] = useState<string[]>(initialSelectedTags);
   const [tagFilter, setTagFilter] = useState("");
   const [deck, setDeck] = useState<SerializedFlashcard[]>([]);
   const [index, setIndex] = useState(0);
@@ -231,7 +239,7 @@ export function StudySession({ flashcards, tags }: { flashcards: SerializedFlash
   if (stage === "selecting") {
     return (
       <div className={`${styles.panel} ${styles.panelWide}`}>
-        <h2 className={styles.heading}>Select tags to study</h2>
+        <h2 className={`${styles.heading} ${styles.selectHeading}`}>Select tags to study</h2>
         {tags.length === 0 ? (
           <p className={styles.empty}>No tags exist yet — add tags to a flashcard first.</p>
         ) : (

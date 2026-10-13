@@ -219,3 +219,19 @@ test("study session: tag filter search narrows the tag cloud and clear restores 
 
   errors.assertNone();
 });
+
+test("study session: tags selected on the flashcards list carry over into Study", async ({ page }) => {
+  const errors = trackPageErrors(page);
+  const tag = `playwright-carry-${Date.now()}`;
+
+  await addFlashcard(page, `Carry Front ${Date.now()}`, "Carry Back", [tag]);
+
+  await page.goto(`/flashcards?tags=${encodeURIComponent(tag)}`);
+  await page.getByRole("link", { name: "Study" }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/flashcards/study\\?tags=${tag}$`));
+  await expect(page.getByRole("heading", { name: "Select tags to study" })).toBeVisible();
+  await expect(page.getByRole("button", { name: tag, pressed: true })).toBeVisible();
+
+  errors.assertNone();
+});
