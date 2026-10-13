@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** in-review: PR #84 (https://github.com/sgspinola/pensieve/pull/84). Items 6 and 7 wait on the release that carries it
 
 Decisions:
 
@@ -20,10 +20,10 @@ Decisions:
 
 Done when:
 
-- [ ] The reusable workflows, CI scripts and SARIF composite action exist, and `ci.yml` calls them as described above
-- [ ] The PR's runs pass the same set of jobs with the same step summaries, `iac`'s prod plan included
-- [ ] Code Scanning still receives the same SARIF categories (`Semgrep`, `Secrets`, `Container SCA`)
-- [ ] actionlint and the new shellcheck step pass
-- [ ] README's CI section, `docs/architecture/deployable-image.md`, and the comments in `db.yml` and the `publish-image` action that refer to `ci.yml`'s jobs are updated. Rulesets now require gates "by check name", not "by job name". The full CI architecture page stays in 55
+- [x] The reusable workflows, CI scripts and SARIF composite action exist, and `ci.yml` calls them as described above. `iac.yml`, `image.yml`, `.github/scripts/` (iac plan and summary, trufflehog, trivy summary) and `.github/actions/upload-sarif`
+- [x] The PR's runs pass the same set of jobs with the same step summaries, `iac`'s prod plan included. Run 38369106186: every job passed, the plan step ran with both `plan` secrets masked (the first run, 38363797853, had them empty; see the revised decision above)
+- [x] Code Scanning still receives the same SARIF categories (`Semgrep`, `Secrets`, `Container SCA`). Run 38369106186 uploaded `Semgrep`, `Secrets` (Trivy and TruffleHog) and `Container SCA`
+- [x] actionlint and the new shellcheck step pass. The existing `scripts/` had no findings, so none needed fixing
+- [x] README's CI section, `docs/architecture/deployable-image.md`, and the comments in `db.yml` and the `publish-image` action that refer to `ci.yml`'s jobs are updated. Rulesets now require gates "by check name", not "by job name". The full CI architecture page stays in 55
 - [ ] `protect-main` requires the new check names, and the release PR carrying this change satisfies it
 - [ ] After that release, `publish` runs and `cosign verify` against `ci.yml@refs/heads/main` passes on the new image, or nothing is pushed because the app didn't change
