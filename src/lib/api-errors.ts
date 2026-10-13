@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clientFields } from "@/lib/client-fields";
 import { getCurrentUser } from "@/lib/current-user";
 import { getLogger, withContext } from "@/lib/logging";
 import { REQUEST_ID_HEADER } from "@/lib/request-id";
@@ -37,7 +38,9 @@ type RouteHandler<Args extends unknown[]> = (
  * Wraps a Next.js route handler so every request gets:
  *
  * - One baseline log line (route, method, response status, duration in ms,
- *   authenticated user ID, request ID) regardless of outcome.
+ *   authenticated user ID, request ID, and the client's IP, user agent and
+ *   Cloudflare ray ID where present: src/lib/client-fields.ts) regardless of
+ *   outcome.
  * - A consistent `{ error: { code, message, requestId } }` envelope for any
  *   thrown `AppError` subclass, built from the error's own `code`/`status`/
  *   `message` — logged at `warning`.
@@ -48,9 +51,10 @@ type RouteHandler<Args extends unknown[]> = (
  * The success-path response is returned unchanged; only thrown errors are
  * intercepted.
  *
- * The handler itself runs inside `withContext({ requestId }, ...)`, so any
- * logger call it makes anywhere in its call graph (e.g. a service's
- * mutation log) automatically carries `requestId` too — Proxy's own
+ * The handler itself runs inside `withContext({ requestId, ... }, ...)`, so
+ * any logger call it makes anywhere in its call graph (e.g. a service's
+ * mutation log, or an auth event) automatically carries `requestId`, the
+ * user ID and the client fields too — Proxy's own
  * `withContext` binding (`src/proxy.ts`) doesn't reach across the Proxy →
  * Route Handler boundary, so this is the binding that actually covers a
  * route handler's execution.
@@ -63,6 +67,7 @@ export function withErrorHandling<Args extends unknown[]>(
     const method = request.method;
     const route = new URL(request.url).pathname;
     const requestId = request.headers.get(REQUEST_ID_HEADER) ?? undefined;
+    const client = clientFields(request.headers);
     const logger = getLogger(["pensieve", "api"]);
 
     const userId = await currentUserId();
@@ -72,10 +77,11 @@ export function withErrorHandling<Args extends unknown[]>(
       durationMs: Date.now() - start,
       userId,
       requestId,
+      ...client,
     });
 
     try {
-      const response = await withContext({ requestId, userId }, () => handler(request, ...rest));
+      const response = await withContext({ requestId, userId, ...client }, () => handler(request, ...rest));
       logger.info("Request handled", { ...baseFields(), status: response.status });
       return response;
     } catch (err) {

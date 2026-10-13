@@ -73,7 +73,7 @@ flowchart TD
     IsAppError{"instanceof AppError?"}
     AppErrResp["{ error: { code, message, requestId,\n  ...(issues?.length ? { issues } : {}) } }\nstatus = err.status\nlogged at warning"]
     UnknownResp["{ error: { code: \"INTERNAL\",\n  message: \"Something went wrong. Please try again.\",\n  requestId } }\nstatus = 500\nlogged at error (with real message)"]
-    BaselineLog["One baseline log line either way:\nroute, method, durationMs, userId, requestId, status"]
+    BaselineLog["One baseline log line either way:\nroute, method, durationMs, userId, requestId, status,\nclientIp, userAgent, cfRay (where present)"]
 
     Handler --> Thrown
     Thrown -->|no| Success --> BaselineLog
@@ -347,3 +347,29 @@ The same pattern is repeated in `src/services/flashcards/flashcards.ts`
 confirmed via `graphify query "logMutationSuccess call sites items
 flashcards"`, which returned all call sites across every entity kind in one
 scoped subgraph.
+
+## Client fields and auth events
+
+Ticket 61 adds what an investigation needs to tie activity to a source and
+reconstruct every attempt to get in.
+
+- **Client fields.** `clientFields()` (`src/lib/client-fields.ts`) reads
+  `CF-Connecting-IP` as `clientIp`, `User-Agent` as `userAgent` and `CF-Ray`
+  as `cfRay`, and omits any header that's absent (local development, CI's
+  e2e), rather than faking it. `withErrorHandling` adds them to the baseline
+  line and to the handler's log context, so every line a request logs
+  carries them. `proxy.ts` binds them for its own lines. `CF-Connecting-IP`
+  is trusted only because the Cloudflare Tunnel is the only way in: the task
+  has no public address and accepts no inbound traffic. IP addresses are
+  personal data, kept only as long as the logs (30 days).
+- **Auth events.** `src/services/auth/auth-events.ts` logs one line per
+  authentication-relevant action, under the `pensieve.auth` category:
+  `event`, `outcome` (`success` at `info`, `failure` at `warning`), the
+  `userId` where known, the error message as `reason` on a failure, and a
+  `stage` for a failure at a flow's options step. Never a token, challenge or
+  recovery code. The events are `passkey_login`, `recovery_code_use`,
+  `invite_redemption`, `admin_registration`, `passkey_added`,
+  `passkey_removed`, `session_created`, `logout`, and `session_rejected`
+  (the Proxy refusing a missing, unknown or expired session, with the
+  refused `path`). Page loads still aren't logged: the API line and these
+  events cover everything that changes state or grants access.

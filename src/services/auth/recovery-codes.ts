@@ -4,6 +4,7 @@ import type { Database } from "@/db/client";
 import { recoveryCodes } from "@/db/schema";
 import { sha256Hex } from "@/lib/crypto";
 import { getLogger } from "@/lib/logging";
+import { logAuthFailure } from "@/services/auth/auth-events";
 import { UnauthorizedError } from "@/services/errors";
 import { logMutationFailure, logMutationSuccess } from "@/services/mutation-log";
 
@@ -53,7 +54,8 @@ export async function generateRecoveryCodes(
  * whose replacement-passkey ceremony to set up before that ceremony has
  * actually succeeded. Redemption (see redeemRecoveryCode) only happens once
  * the ceremony is verified, so a cancelled/failed attempt never burns the
- * code.
+ * code. An unknown or used code is a failed `recovery_code_use` auth event
+ * (ticket 61), at this first stage; the code itself is never logged.
  */
 export async function findRecoveryCodeUser(
   db: Database,
@@ -65,7 +67,9 @@ export async function findRecoveryCodeUser(
     .where(and(eq(recoveryCodes.codeHash, sha256Hex(code)), isNull(recoveryCodes.usedAt)));
 
   if (!row) {
-    throw new UnauthorizedError("Invalid or already-used recovery code");
+    const error = new UnauthorizedError("Invalid or already-used recovery code");
+    logAuthFailure("recovery_code_use", error, { stage: "options" });
+    throw error;
   }
 
   return row;

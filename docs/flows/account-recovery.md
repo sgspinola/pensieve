@@ -45,6 +45,7 @@ sequenceDiagram
     participant Session as services/auth/session.ts
     participant Cookies as lib/auth-cookies.ts
     participant DB as Postgres (via Drizzle)
+    participant AuthLog as services/auth/auth-events.ts
 
     Browser->>OptRoute: POST { code }
     alt code missing/blank/wrong-type (options/route.ts:16, via schema.ts + parseOrThrow in lib/validation.ts — ticket 16)
@@ -55,6 +56,7 @@ sequenceDiagram
         RecoverySvc->>DB: select user_id from recovery_codes where<br/>code_hash = sha256(code) and used_at is null
         alt no matching unused code (recovery-codes.ts:52-54)
             DB-->>RecoverySvc: none
+            RecoverySvc->>AuthLog: logAuthFailure("recovery_code_use", err, { stage: "options" })
             RecoverySvc-->>OptRoute: throw UnauthorizedError("Invalid or already-used recovery code")
             OptRoute-->>Browser: 401 { error: { code: "UNAUTHORIZED",<br/>message: "Invalid or already-used recovery code", requestId } }
         else found
@@ -91,6 +93,7 @@ sequenceDiagram
         VerRoute->>Cookies: clearChallengeCookie()<br/>clearRecoveryCodeCookie()
         Note right of VerRoute: single-use to this attempt regardless of<br/>outcome — same pattern as invite/verify
         VerRoute->>Webauthn: completeAccountRecovery(db, { code, response, expectedChallenge })
+        Note over Webauthn,AuthLog: ticket 61: completeAccountRecovery wraps the steps below<br/>(replacePasskey). Any throw logs a recovery_code_use failure<br/>(with userId once the code is redeemed) and is rethrown
 
         Webauthn->>Webauthn: verifyRegistration(response, expectedChallenge)
         alt verification fails (webauthn.ts:92-98)
@@ -113,12 +116,16 @@ sequenceDiagram
                 Note right of DB: old credential AND every existing session<br/>revoked in the same transaction as attaching<br/>the new passkey — the device holding the old<br/>passkey is gone, so leaving it (or sessions<br/>opened from it) valid would defeat recovery<br/>(webauthn.ts:289-292)
                 alt new credential UNIQUE violation (webauthn.ts:316-318)
                     DB-->>Webauthn: unique constraint error
+                    Webauthn->>AuthLog: logAuthFailure("passkey_removed" and "passkey_added", err, { userId })
                     Webauthn-->>VerRoute: throw UnauthorizedError("This passkey is already registered")
                     VerRoute-->>Browser: 401 { error: { code: "UNAUTHORIZED",<br/>message: "This passkey is already registered", requestId } }
                 else transaction commits
                     DB-->>Webauthn: user row
+                    Webauthn->>AuthLog: logAuthSuccess("passkey_removed" and "passkey_added", { userId })
                     Webauthn->>Session: createSession(db, user.id)
+                    Session->>AuthLog: logAuthSuccess("session_created", { userId })
                     Session-->>Webauthn: { token, expiresAt }
+                    Webauthn->>AuthLog: logAuthSuccess("recovery_code_use", { userId })
                     Webauthn-->>VerRoute: { user, session }
                     VerRoute->>Cookies: setSessionCookie(session)
                     VerRoute-->>Browser: 200 { user }

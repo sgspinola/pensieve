@@ -1,8 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getDb } from "@/db/client";
 import { SESSION_COOKIE_NAME, USER_HEADER_NAME, encodeUserHeader } from "@/lib/auth-cookies";
+import { clientFields } from "@/lib/client-fields";
 import { ensureLoggingConfigured, withContext } from "@/lib/logging";
 import { REQUEST_ID_HEADER } from "@/lib/request-id";
+import { logAuthFailure } from "@/services/auth/auth-events";
 import { getSessionUser } from "@/services/auth/session";
 
 ensureLoggingConfigured();
@@ -76,8 +78,9 @@ export async function proxy(request: NextRequest) {
   // Binding it via withContext (backed by the AsyncLocalStorage wired into
   // LogTape in src/lib/logging.ts) means every getLogger(...) call anywhere
   // in this request's call graph — including inside getSessionUser — picks
-  // it up automatically, with no manual threading.
-  return withContext({ requestId }, async () => {
+  // it up automatically, with no manual threading. The client fields
+  // (ticket 61) ride along, so a rejected session says where it came from.
+  return withContext({ requestId, ...clientFields(request.headers) }, async () => {
     const response = await handleRequest(request, requestId);
     // Surfaced back to the caller so it can correlate its own logs/traces
     // with ours, whether the ID was generated here or just echoed back.
@@ -110,7 +113,11 @@ async function handleRequest(request: NextRequest, requestId: string): Promise<N
     requestHeaders.set(USER_HEADER_NAME, encodeUserHeader(user));
 
     return NextResponse.next({ request: { headers: requestHeaders } });
-  } catch {
+  } catch (error) {
+    // Ticket 61: every refused session, missing, unknown or expired, is an
+    // auth event. Page loads are otherwise never logged.
+    logAuthFailure("session_rejected", error, { path: request.nextUrl.pathname });
+
     if (request.nextUrl.pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

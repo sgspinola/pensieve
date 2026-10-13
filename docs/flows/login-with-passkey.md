@@ -17,6 +17,7 @@ sequenceDiagram
     participant Session as services/auth/session.ts
     participant Cookies as lib/auth-cookies.ts
     participant DB as Postgres (via Drizzle)
+    participant AuthLog as services/auth/auth-events.ts
 
     Browser->>OptRoute: POST /api/auth/login/options
     OptRoute->>Webauthn: generatePasskeyLoginOptions()
@@ -43,6 +44,7 @@ sequenceDiagram
         VerRoute-->>Browser: 400 { error: "Missing login response" }
     else has expectedChallenge
         VerRoute->>Webauthn: verifyPasskeyLogin(db, { response, expectedChallenge })
+        Note over Webauthn,AuthLog: ticket 61: verifyPasskeyLogin wraps the steps below<br/>(loginWithPasskey). Any throw logs a passkey_login failure<br/>(with userId once the credential is found) and is rethrown,<br/>success logs passkey_login success with userId
 
         Webauthn->>DB: select * from webauthn_credentials where credential_id = response.id
 
@@ -67,7 +69,9 @@ sequenceDiagram
                     Webauthn->>Session: createSession(db, user.id)
                     Session->>Session: token = randomBytes(32).base64url()<br/>expiresAt = now + 30d
                     Session->>DB: insert into sessions { id: sha256(token), user_id, expires_at }
+                    Session->>AuthLog: logAuthSuccess("session_created", { userId })
                     Session-->>Webauthn: { token, expiresAt }
+                    Webauthn->>AuthLog: logAuthSuccess("passkey_login", { userId })
                     Webauthn-->>VerRoute: { user, session }
 
                     VerRoute->>Cookies: clearChallengeCookie(cookieStore)
