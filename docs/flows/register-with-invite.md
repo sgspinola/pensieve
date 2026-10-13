@@ -49,6 +49,7 @@ sequenceDiagram
     participant Recovery as services/auth/recovery-codes.ts
     participant Cookies as lib/auth-cookies.ts
     participant DB as Postgres (via Drizzle)
+    participant AuthLog as services/auth/auth-events.ts
 
     Browser->>Page: GET /invite/:token
     Page->>InvitesSvc: isInviteRedeemable(db, token)
@@ -73,6 +74,7 @@ sequenceDiagram
         Webauthn->>InvitesSvc: assertInviteRedeemable(db, token)
         alt not redeemable (invites.ts:67-69)
             InvitesSvc-->>Webauthn: throw UnauthorizedError("Invite link is invalid, already used, or expired")
+            Webauthn->>AuthLog: logAuthFailure("invite_redemption", err, { stage: "options" })
             Webauthn-->>OptRoute: rethrow
             OptRoute-->>Browser: 401 { error: { code: "UNAUTHORIZED",<br/>message: "Invite link is invalid, already used, or expired", requestId } }
         else redeemable — re-checked here, not just at page load
@@ -100,6 +102,7 @@ sequenceDiagram
         VerRoute->>Cookies: clearChallengeCookie()<br/>clearInviteTokenCookie()
         Note right of VerRoute: cleared before the outcome is even known —<br/>this ceremony attempt is single-use either way
         VerRoute->>Webauthn: redeemInvite(db, { token, response, expectedChallenge, displayName })
+        Note over Webauthn,AuthLog: ticket 61: redeemInvite wraps the steps below<br/>(registerInvitee). Any throw logs an invite_redemption<br/>failure and is rethrown; the user transaction also logs<br/>passkey_added (failure in its catch, success after commit)
 
         Webauthn->>Webauthn: verifyRegistration(response, expectedChallenge)
         Note right of Webauthn: @simplewebauthn/server checks signature +<br/>origin + RP ID + challenge match in one call —<br/>any failure (including a thrown error, e.g.<br/>origin mismatch) maps to one UnauthorizedError
@@ -131,6 +134,7 @@ sequenceDiagram
                     and
                         Webauthn->>Recovery: generateRecoveryCodes(db, user.id)
                     end
+                    Webauthn->>AuthLog: logAuthSuccess("passkey_added" / "session_created" /<br/>"invite_redemption", { userId })
                     Session-->>Webauthn: { token, expiresAt }
                     Recovery-->>Webauthn: recoveryCodes[] (shown once)
                     Webauthn-->>VerRoute: { user, session, recoveryCodes }

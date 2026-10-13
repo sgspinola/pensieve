@@ -4,6 +4,7 @@ import type { Database } from "@/db/client";
 import { sessions, users } from "@/db/schema";
 import { sha256Hex } from "@/lib/crypto";
 import { getLogger } from "@/lib/logging";
+import { logAuthFailure, logAuthSuccess } from "@/services/auth/auth-events";
 import { UnauthorizedError } from "@/services/errors";
 import { logMutationFailure, logMutationSuccess } from "@/services/mutation-log";
 
@@ -34,9 +35,11 @@ export async function createSession(
   try {
     await db.insert(sessions).values({ id, userId, expiresAt });
     logMutationSuccess(logger, "Session created", { entity: ENTITY, entityId: id });
+    logAuthSuccess("session_created", { userId });
     return { token, expiresAt };
   } catch (error) {
     logMutationFailure(logger, "Session creation failed", { entity: ENTITY }, error);
+    logAuthFailure("session_created", error, { userId });
     throw error;
   }
 }
@@ -73,13 +76,20 @@ export async function getSessionUser(
   return { id: row.id, displayName: row.displayName, role: row.role };
 }
 
+/**
+ * Logs the session's user out (the logout route's only job). A token that
+ * matches no session (already expired and cleaned up, or never valid) still
+ * logs out, with no user ID to report.
+ */
 export async function deleteSession(db: Database, token: string): Promise<void> {
   const id = sha256Hex(token);
   try {
-    await db.delete(sessions).where(eq(sessions.id, id));
+    const [deleted] = await db.delete(sessions).where(eq(sessions.id, id)).returning({ userId: sessions.userId });
     logMutationSuccess(logger, "Session deleted", { entity: ENTITY, entityId: id });
+    logAuthSuccess("logout", { userId: deleted?.userId });
   } catch (error) {
     logMutationFailure(logger, "Session deletion failed", { entity: ENTITY, entityId: id }, error);
+    logAuthFailure("logout", error);
     throw error;
   }
 }
