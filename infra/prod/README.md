@@ -8,7 +8,7 @@ compute and Cloudflare Tunnel ingress (49):
 | --- | --- |
 | `network.tf` | VPC; a public subnet holding only the NAT Gateway (and its Elastic IP); private subnets in two AZs (the task and RDS run in `eu-north-1a`; `-b` exists because an RDS subnet group needs two); an S3 gateway endpoint so image pulls skip the NAT |
 | `security-groups.tf` | `pensieve-task` (no inbound at all, any outbound) and `pensieve-rds` (Postgres from `pensieve-task` only) |
-| `database.tf` | RDS PostgreSQL 17, `db.t4g.micro`, single-AZ, 20→50 GB gp3, encrypted, IAM auth, RDS-managed master password (never in state), 35-day PITR, deletion protection, final snapshot, retained backups |
+| `database.tf` | RDS PostgreSQL 17, `db.t4g.micro`, single-AZ, 20→50 GB gp3, encrypted, IAM auth, RDS-managed master password (never in state), 35-day PITR, deletion protection, final snapshot, retained backups. Ticket 60: a parameter group with connection logging and pgaudit (`role`, `ddl`), and the `postgresql` and `iam-db-auth-error` logs exported to CloudWatch (30 days) |
 | `registry.tf` | ECR `pensieve` and `pensieve-db`: immutable tags except `main`; keep the last 50 `sha-*`, expire untagged after a day |
 | `observability.tf` | Log groups for the app, `cloudflared`, migrate and db-bootstrap (30 days); a monthly budget alerting at $10 actual and $20 forecast |
 | `compute.tf` | ECS cluster and the one service (Fargate ARM64, 0.25 vCPU / 1 GB, desired count 0, 0%/100% deployments with circuit-breaker rollback, no load balancer); the first revisions of the app (app + `cloudflared` sidecar), migrate and db-bootstrap task definitions. The service ignores later task-definition and desired-count changes: the deploy workflows own them |
@@ -67,6 +67,40 @@ lives in state and in the `pensieve/cloudflared-tunnel-token` secret.
 The instance has deletion protection, and destroying it leaves a final
 snapshot (`pensieve-final`) and the automated backups. Turn protection off in
 code (a reviewed change) before anything can remove it.
+
+## Database logging
+
+Ticket 60. Postgres logs every connection and disconnection, and pgaudit
+logs every role, grant and schema change (`pgaudit.log = 'role,ddl'`), in
+the `postgresql` log. Failed IAM logins go to `iam-db-auth-error`. Both are
+exported to CloudWatch (`/aws/rds/instance/pensieve/*`, 30 days).
+Statements on rows are never logged (no `read` or `write` audit classes, no
+`log_statement`), so note contents stay out of the logs.
+
+Turning it on takes more than an apply. Terraform queues the switch to the
+new parameter group for the next maintenance window, and pgaudit only loads
+after a reboot. The extension itself is created by the DB bootstrap, which
+fails until pgaudit is loaded. So, once:
+
+```sh
+terraform apply prod.tfplan    # the parameter group, log groups and exports
+aws rds modify-db-instance --db-instance-identifier pensieve --apply-immediately \
+  --db-parameter-group-name pensieve-postgres17
+aws rds wait db-instance-available --db-instance-identifier pensieve
+aws rds reboot-db-instance --db-instance-identifier pensieve   # a minute or two of downtime
+aws rds wait db-instance-available --db-instance-identifier pensieve
+scripts/db-bootstrap.sh <db-sha>   # creates the pgaudit extension
+```
+
+`describe-db-instances` should then show the group `in-sync`. To check it,
+in CloudWatch Logs Insights over `/aws/rds/instance/pensieve/postgresql`:
+
+```
+fields @timestamp, @message
+| filter @message like /AUDIT:|connection authorized|disconnection/
+| sort @timestamp desc
+| limit 50
+```
 
 ## Bootstrapping the database
 

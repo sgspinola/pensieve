@@ -64,6 +64,21 @@ ALTER DEFAULT PRIVILEGES FOR ROLE pensieve_migrator IN SCHEMA drizzle
 ALTER DEFAULT PRIVILEGES FOR ROLE pensieve_migrator IN SCHEMA pensieve_meta
   GRANT SELECT ON TABLES TO pensieve_app;
 
+-- Ticket 60: pgaudit, for the role and DDL audit the prod parameter group
+-- turns on (infra/prod/database.tf). Only where the server offers it: RDS
+-- does, the stock postgres image DB CI and the tests run on doesn't. On RDS,
+-- creating it needs rds_superuser, which the master has, and pgaudit in
+-- shared_preload_libraries, which takes the reboot after the parameter
+-- group is applied: before it, this fails and the whole bootstrap rolls
+-- back.
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM pg_available_extensions WHERE name = 'pgaudit') THEN
+    CREATE EXTENSION IF NOT EXISTS pgaudit;
+  END IF;
+END
+$$;
+
 -- Ticket 62: give up the membership granted above, in the same transaction,
 -- so the master never holds the migrator's privileges after the bootstrap.
 -- The migrator is an rds_iam member, and RDS turns off password login for
