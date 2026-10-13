@@ -11,3 +11,6 @@
 - [x] Resolver query-log config associated with the prod VPC, delivering to `resolver/`
 - [x] Athena tables with partition projection for both prefixes, in bootstrap next to the CloudTrail table. `vpc_flow` projects `year`, `month`, `day` and `hour` (integers, matching the Hive-style keys). `resolver` projects `day` and takes the VPC as an injected `vpc` partition, since bootstrap can't know prod's VPC ID: every query names it
 - [ ] Applied. Athena returns NAT egress flows showing the real destination, and DNS queries made from inside the VPC
+
+Added during review: an off switch, since volume-billed delivery could become a budget problem. `network_logs_enabled` (no default) gates the flow log and Resolver query logging. Its value lives in the `plan` Environment's `NETWORK_LOGS_ENABLED` variable (set to `true`): CI's plan passes it, and a local apply exports it with `gh variable get`, so switching off is a variable change plus an apply, with no drift. The Athena tables stay either way.
+

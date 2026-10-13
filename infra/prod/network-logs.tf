@@ -4,11 +4,15 @@
 # config's log bucket, whose policy lets log delivery write only under these
 # two prefixes; the Athena tables over them are bootstrap's too
 # (infra/bootstrap/network-logs.tf). Investigation only, no alerting.
+# var.network_logs_enabled switches all three resources off; the bucket's
+# lifecycle rules expire what was already delivered.
 
 # On the VPC, not per ENI, so the task, RDS and the NAT Gateway are all
 # covered, including ENIs created later. ALL traffic, not only REJECT:
 # exfiltration is accepted traffic.
 resource "aws_flow_log" "vpc" {
+  count = var.network_logs_enabled ? 1 : 0
+
   vpc_id                   = aws_vpc.main.id
   traffic_type             = "ALL"
   log_destination_type     = "s3"
@@ -43,11 +47,15 @@ locals {
 
 # Every DNS query the VPC's resolver answers, the task's included.
 resource "aws_route53_resolver_query_log_config" "vpc" {
+  count = var.network_logs_enabled ? 1 : 0
+
   name            = "pensieve"
   destination_arn = "${local.log_bucket_arn}/${local.log_prefixes.resolver}"
 }
 
 resource "aws_route53_resolver_query_log_config_association" "vpc" {
-  resolver_query_log_config_id = aws_route53_resolver_query_log_config.vpc.id
+  count = var.network_logs_enabled ? 1 : 0
+
+  resolver_query_log_config_id = aws_route53_resolver_query_log_config.vpc[0].id
   resource_id                  = aws_vpc.main.id
 }

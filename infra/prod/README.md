@@ -54,6 +54,9 @@ reads the token back from Cloudflare, which would need Tunnel Write.)
 aws login --profile pensieve-admin
 export AWS_PROFILE=pensieve-admin
 read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN
+# The logging switches, from the same GitHub variables CI's plan reads
+# ("Logging switches" below).
+export TF_VAR_network_logs_enabled="$(gh variable get NETWORK_LOGS_ENABLED --env plan)"
 cd infra/prod
 terraform init -backend-config="bucket=pensieve-tfstate-$(aws sts get-caller-identity --query Account --output text)"
 terraform plan -out prod.tfplan   # review it
@@ -68,6 +71,25 @@ lives in state and in the `pensieve/cloudflared-tunnel-token` secret.
 The instance has deletion protection, and destroying it leaves a final
 snapshot (`pensieve-final`) and the automated backups. Turn protection off in
 code (a reviewed change) before anything can remove it.
+
+## Logging switches
+
+The logs billed by volume can be switched off without editing code or
+changing anything by hand in AWS, which Terraform would see as drift. Each
+switch is a Terraform variable with no default, set from a variable in the
+`plan` GitHub Environment (Settings → Environments → plan), the one place
+its value lives:
+
+| GitHub variable | Terraform variable | Switches |
+| --- | --- | --- |
+| `NETWORK_LOGS_ENABLED` | `network_logs_enabled` | the VPC flow log and Resolver query logging (ticket 59) |
+
+CI's plan passes it to Terraform, and the apply procedure above exports it
+with `gh variable get`. To switch logs off: set the variable to `false`
+(`gh variable set NETWORK_LOGS_ENABLED --env plan --body false`), check the
+next PR's plan, then apply. Already-delivered logs stay until the log
+bucket's lifecycle rules expire them. A missing or empty variable fails the
+plan rather than falling back to either value.
 
 ## Investigating network traffic
 
