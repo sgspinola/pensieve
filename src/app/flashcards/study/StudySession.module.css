@@ -25,6 +25,15 @@
 }
 
 /*
+ * Selecting-stage heading only: centered over `.filterField` (itself
+ * `align-self: center`) — the completed stage's heading keeps the default
+ * alignment, same modifier pattern as `.startButton`.
+ */
+.selectHeading {
+  text-align: center;
+}
+
+/*
  * Ticket 09: search box between the heading and the tag cloud. Ticket 01
  * extracted the box itself into `TagFilterInput` — this just composes onto
  * its unstyled-width default to add the study page's own centered, capped

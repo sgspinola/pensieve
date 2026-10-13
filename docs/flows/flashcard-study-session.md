@@ -5,7 +5,7 @@ Unlike every other flow in these docs, a study session is almost entirely
 network round trip happens once the page loads. `src/app/flashcards/study/page.tsx`
 is a Server Component that fetches the *entire* flashcard pool and tag list
 once (`listFlashcards(db)` with no `limit`, and `listFlashcardTags(db)`,
-`page.tsx:26`) and hands both down as props to `StudySession.tsx` (a
+`page.tsx:36`) and hands both down as props to `StudySession.tsx` (a
 `"use client"` component, `src/app/flashcards/study/StudySession.tsx`),
 which owns every bit of session state itself: tag selection, the shuffled
 deck, the current card index, and flip state. Starting, restarting, or
@@ -14,12 +14,24 @@ over the props the page already has.
 
 ## Why the whole pool, unpaginated
 
-`page.tsx:22-24` notes explicitly: "the study deck needs the entire pool up
+`page.tsx:32-34` notes explicitly: "the study deck needs the entire pool up
 front to shuffle from, unlike the paginated `/flashcards` management list."
-`listFlashcardTags` (`page.tsx:26`) additionally scopes the tag-selection
+`listFlashcardTags` (`page.tsx:36`) additionally scopes the tag-selection
 cloud to tags actually attached to at least one flashcard, so an item-only
 tag never shows up as a distractor option that would silently produce an
 empty deck.
+
+## Pre-selected tags from `/flashcards`
+
+The management list's [STUDY] link carries its current tag filter along as
+`?tags=` (`buildTagsUrl("/flashcards/study", tagsFilter)` in
+`FlashcardsManager.tsx`). `page.tsx` parses it with `parseTagsParam`, strips
+any tag no longer attached to a flashcard with `dropStaleTags` (`page.tsx:38`),
+and passes the result as `initialSelectedTags`, which seeds `StudySession`'s
+`selectedTags` state. The user still lands on the selection screen with those
+chips already pressed, and can change them before [START]. The study page
+never writes the selection back to the URL. [PICK DIFFERENT TAGS] still
+clears the selection to empty.
 
 ## Stage machine
 
@@ -31,11 +43,12 @@ sequenceDiagram
     participant Deck as study/deck.ts<br/>(pure functions)
     participant Embla as embla-carousel-react
 
-    User->>Page: navigate to /flashcards/study
+    User->>Page: navigate to /flashcards/study[?tags=...]
     Page->>Page: requireCurrentUser()
     Page->>Page: listFlashcards(db) [no limit],<br/>listFlashcardTags(db)
-    Page-->>Session: props: { flashcards, tags }
-    Note over Session: stage = "selecting" (initial state)
+    Page->>Page: dropStaleTags(parseTagsParam(tags), tags)
+    Page-->>Session: props: { flashcards, tags, initialSelectedTags }
+    Note over Session: stage = "selecting" (initial state),<br/>selectedTags = initialSelectedTags
 
     User->>Session: toggle tag chips (TagCloud)
     Session->>Deck: filterFlashcardsByTags(flashcards, selectedTags)
