@@ -1,0 +1,46 @@
+# Ticket 63: what the four SARIF-writing jobs share (ci.yml's semgrep and
+# trufflehog, image.yml's build and trivy): the scanner's SARIF goes to Code
+# Scanning under its category, and its finding count comes back for the
+# job's own summary line. Call it with `if: always()`, so findings survive
+# the failure they cause. Expects the repository to be checked out already
+# (a local action can't be loaded before checkout).
+name: Upload SARIF
+description: Uploads a scanner's SARIF to Code Scanning under a category and outputs its finding count.
+
+inputs:
+  sarif-file:
+    description: The SARIF file the scanner wrote, relative to the workspace.
+    required: true
+  category:
+    description: The Code Scanning category (Semgrep, Secrets, Container SCA).
+    required: true
+
+outputs:
+  findings:
+    description: The number of results in the file, or empty when the scanner wrote no SARIF.
+    value: ${{ steps.count.outputs.findings }}
+
+runs:
+  using: composite
+  steps:
+    # sh, not bash: semgrep's job runs in the Semgrep image's container.
+    - id: count
+      if: always()
+      shell: sh
+      env:
+        SARIF: ${{ inputs.sarif-file }}
+      run: |
+        if [ -f "$SARIF" ]; then
+          echo "present=true" >> "$GITHUB_OUTPUT"
+        fi
+        if [ -s "$SARIF" ]; then
+          echo "findings=$(jq '[.runs[].results[]] | length' "$SARIF")" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Upload SARIF
+      if: always() && steps.count.outputs.present == 'true'
+      # A fork PR's token can't write security events; don't fail on that.
+      continue-on-error: ${{ github.event.pull_request.head.repo.fork == true }}
+      uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+        category: ${{ inputs.category }}
