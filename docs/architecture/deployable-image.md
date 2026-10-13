@@ -94,14 +94,14 @@ sequenceDiagram
     participant DB as Postgres
 
     Op->>Mig: docker run <db-image> (DATABASE_URL, or PG* vars for RDS IAM)
-    Mig->>DB: BEGIN; note the newest bookkeeping row
+    Mig->>DB: BEGIN, note the newest bookkeeping row
     Mig->>DB: drizzle migrate() in a savepoint: pending SQL + bookkeeping rows
     Mig->>DB: read the rows migrate() added
     alt one of them is breaking and ALLOW_BREAKING isn't "true"
         Mig->>DB: ROLLBACK (migrate()'s work included)
         Mig-->>Op: exit 1 + "breaking migration(s) pending: <tags>"
     else
-        Mig->>DB: upsert pensieve_meta.schema_compat; COMMIT
+        Mig->>DB: upsert pensieve_meta.schema_compat, COMMIT
         Mig-->>Op: exit 0 (also when nothing was pending)
     else unreachable DB, bad SQL, no DATABASE_URL or PG* vars
         Mig-->>Op: exit 1 + "Migration failed: … (cause)", nothing applied
@@ -157,6 +157,7 @@ Deploys verify the image with `cosign verify` against that identity and issuer. 
 
 The DB image has its own workflow, `.github/workflows/db.yml`. It runs on pull requests into `develop`/`main` and pushes to them, but only when one of the DB image's inputs changes: `drizzle/`, `db/` (including the image's own `db/Dockerfile.dockerignore`), `src/db/`, `certs/`, `drizzle.config.ts`, `package.json`, `package-lock.json`, `tsconfig.json` or the workflow itself. App-only changes skip it. Dependency bumps run it, since the image bundles npm packages. For the same reason its jobs aren't required checks in the rulesets, since a required check whose workflow never ran would block the PR. A failing run still shows on the PR.
 
+- **`db-drift`** (ticket 45) runs `drizzle-kit generate` and fails if it writes anything: `src/db/schema.ts` changed but nobody ran `npm run db:generate`. It needs no database. drizzle-kit compares the schema with the committed snapshots in `drizzle/meta/`, not the SQL, so a migration's hand-added breaking marker doesn't affect it.
 - **`db-image`** builds the DB image natively on an arm64 runner and scans it as the app image is scanned: Trivy's secret scan with `trivy-secret.yaml`, then its vulnerability scan with `.trivyignore`. Either finding fails the job, and both go to Code Scanning (`Secrets`, `Container SCA`). The migrator is a single esbuild bundle that Trivy can't see into, so this scan covers the distroless base. The npm packages bundled into it also ship in the app image, where the `trivy` job sees them. A clean image is uploaded as the `pensieve-db-image` artifact for 1 day. The job also writes the DB image's CycloneDX SBOM, kept 90 days as `pensieve-db-sbom`. The image has no `node_modules`, so the SBOM merges three sources:
   - the npm packages esbuild actually bundled, read from an esbuild metafile, with versions from the lockfile via `npm sbom`
   - Trivy's CycloneDX of the base's Debian packages
@@ -164,5 +165,5 @@ The DB image has its own workflow, `.github/workflows/db.yml`. It runs on pull r
 
   A bundled package missing from `npm sbom` fails the job.
 - **`db-grants`** runs the grants test (`db/bootstrap.test.ts`, see [Roles and grants](/architecture/database-schema#roles-and-grants)) against a `postgres:17-alpine` service container. `ci.yml`'s `unit` job also runs it, with the rest of the suite.
-- **`db-apply`** runs that image's migrator against a fresh `postgres:17-alpine` service container, applying every migration to an empty database. It then checks that Drizzle's bookkeeping table records as many migrations as the journal lists.
+- **`db-apply`** runs that image's migrator against a fresh `postgres:17-alpine` service container, applying every migration to an empty database. It then checks that Drizzle's bookkeeping table records as many migrations as the journal lists. Then it tests the real upgrade path (ticket 45) in a second database: the previous release's migrations (`main`'s `drizzle/`, or on a release, `main` before the push), applied with drizzle-kit, then the image's migrator on top with `ALLOW_BREAKING=true`. The count must match again. A migration that only works on an empty database fails here.
 - **`publish-db`**, on a push to `main` only, after every job above has passed. It publishes the scanned DB image to `pensieve-db` as `sha-<7>`, signed, with its SBOM as a signed attestation, exactly as [the app image is published](#publishing-to-ecr). Because of the path filter, it runs only on releases that touch one of the image's inputs. The DB image isn't built reproducibly, so each of those releases publishes, even one that only edited the workflow. If a release's run fails, re-run it: the next release that touches no DB input won't publish the image. `deploy-db` verifies it against the `db.yml` identity.

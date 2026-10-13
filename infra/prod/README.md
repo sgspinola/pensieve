@@ -134,16 +134,14 @@ exported to CloudWatch (`/aws/rds/instance/pensieve/*`, 30 days).
 Statements on rows are never logged (no `read` or `write` audit classes, no
 `log_statement`), so note contents stay out of the logs.
 
-Turning it on takes more than an apply. Terraform queues the switch to the
-new parameter group for the next maintenance window, and pgaudit only loads
-after a reboot. The extension itself is created by the DB bootstrap, which
-fails until pgaudit is loaded. So, once:
+Turning it on takes more than an apply. The apply attaches the parameter
+group at once, but pgaudit (`shared_preload_libraries`, a static parameter)
+only loads after a reboot: until then, `describe-db-instances` shows the
+group `pending-reboot`. The extension itself is created by the DB
+bootstrap, which fails until pgaudit is loaded. So, once:
 
 ```sh
 terraform apply prod.tfplan    # the parameter group, log groups and exports
-aws rds modify-db-instance --db-instance-identifier pensieve --apply-immediately \
-  --db-parameter-group-name pensieve-postgres17
-aws rds wait db-instance-available --db-instance-identifier pensieve
 aws rds reboot-db-instance --db-instance-identifier pensieve   # a minute or two of downtime
 aws rds wait db-instance-available --db-instance-identifier pensieve
 scripts/db-bootstrap.sh <db-sha>   # creates the pgaudit extension

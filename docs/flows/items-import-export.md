@@ -159,7 +159,7 @@ sequenceDiagram
 
     opt any other (non-AppError) thrown error (api-errors.ts:74-95, withErrorHandling catch_clause)
         ExportRoute-->>Browser: 500 { error: { code: "INTERNAL",<br/>message: "Something went wrong. Please try again.", requestId } }
-        Note right of ExportRoute: withErrorHandling wraps the whole handler — an<br/>AppError throw gets its own status/code/message<br/>(as in the import diagrams above); anything else<br/>falls back to this generic 500.
+        Note right of ExportRoute: withErrorHandling wraps the whole handler — an<br/>AppError throw gets its own status/code/message<br/>(as in the import diagrams above), anything else<br/>falls back to this generic 500.
     end
 ```
 

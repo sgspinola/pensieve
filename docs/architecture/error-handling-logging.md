@@ -72,7 +72,7 @@ flowchart TD
     Thrown{"Threw?"}
     IsAppError{"instanceof AppError?"}
     AppErrResp["{ error: { code, message, requestId,\n  ...(issues?.length ? { issues } : {}) } }\nstatus = err.status\nlogged at warning"]
-    UnknownResp["{ error: { code: \"INTERNAL\",\n  message: \"Something went wrong. Please try again.\",\n  requestId } }\nstatus = 500\nlogged at error (with real message)"]
+    UnknownResp["{ error: { code: #quot;INTERNAL#quot;,\n  message: #quot;Something went wrong. Please try again.#quot;,\n  requestId } }\nstatus = 500\nlogged at error (with real message)"]
     BaselineLog["One baseline log line either way:\nroute, method, durationMs, userId, requestId, status,\nclientIp, userAgent, cfRay (where present)"]
 
     Handler --> Thrown

@@ -32,6 +32,7 @@ export default withMermaid({
     nav: [
       { text: "Architecture", link: "/architecture/project-walkthrough" },
       { text: "Flows", link: "/flows/login-with-passkey" },
+      { text: "Runbooks", link: "/runbooks/bootstrap" },
     ],
 
     sidebar: [
@@ -44,6 +45,8 @@ export default withMermaid({
           { text: "Module Structure", link: "/architecture/module-structure" },
           { text: "Error Handling & Logging", link: "/architecture/error-handling-logging" },
           { text: "Deployable Image", link: "/architecture/deployable-image" },
+          { text: "CI Pipeline", link: "/architecture/ci-pipeline" },
+          { text: "AWS Architecture", link: "/architecture/aws-architecture" },
         ],
       },
       {
@@ -61,6 +64,15 @@ export default withMermaid({
           { text: "Wiki Article Management", link: "/flows/wiki-article-management" },
           { text: "Health Check", link: "/flows/health-check" },
           { text: "Startup Schema Check", link: "/flows/startup-schema-check" },
+        ],
+      },
+      {
+        text: "Runbooks",
+        items: [
+          { text: "Bootstrap", link: "/runbooks/bootstrap" },
+          { text: "Deploy", link: "/runbooks/deploy" },
+          { text: "Restore the Database", link: "/runbooks/restore" },
+          { text: "Investigating an Incident", link: "/runbooks/incidents" },
         ],
       },
     ],
