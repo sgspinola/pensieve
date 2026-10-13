@@ -1,0 +1,252 @@
+# Ticket 63: the image pipeline, called by ci.yml's `image` job (its header
+# has the rules every gate follows): `build` makes and secret-scans the app
+# image, then `trivy` scans it for vulnerabilities and `e2e` runs the
+# Playwright suite against it. The checks are named `image / build`,
+# `image / trivy` and `image / e2e`. The caller grants
+# `security-events: write` and passes no secrets. ci.yml's `publish`
+# downloads the `pensieve-image` artifact `build` uploads.
+name: Image
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  # Shared by the build job's secret scan and the trivy job's vulnerability scan.
+  TRIVY_IMAGE: aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa
+
+jobs:
+  # Ticket 33: the deployable arm64 image, built natively on an arm64 runner.
+  # It's scanned for embedded secrets before upload, so a leaking image is
+  # never downloadable from this public repository: Trivy covers every
+  # layer's files plus the image config (ENV, labels, build-arg history),
+  # with a custom rule for credentials in URLs (trivy-secret.yaml). Any
+  # finding fails the job before upload-artifact; SARIF goes up either way.
+  build:
+    name: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The repository allows only GitHub-owned actions, so buildx runs from
+      # the runner's CLI, its layer cache persisted with actions/cache. Every
+      # run restores the newest cache (PRs can read develop's); only pushes
+      # save one, so PR runs don't each add a full layer cache.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/buildx-cache
+          key: buildx-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: buildx-${{ runner.arch }}-
+      - name: Build
+        run: |
+          docker buildx create --driver docker-container --use
+          # Ticket 50: a fixed SOURCE_DATE_EPOCH replaces the build time in
+          # the image config, so unchanged inputs (see .dockerignore) and a
+          # warm cache give an unchanged config digest, and `publish` skips
+          # a release that didn't change the app.
+          docker buildx build --platform linux/arm64 --tag pensieve:ci --load \
+            --build-arg SOURCE_DATE_EPOCH=0 \
+            --cache-from "type=local,src=$RUNNER_TEMP/buildx-cache" \
+            --cache-to "type=local,dest=$RUNNER_TEMP/buildx-cache-new,mode=max" .
+          # Replace rather than merge, so the cache doesn't grow without bound.
+          rm -rf "$RUNNER_TEMP/buildx-cache"
+          mv "$RUNNER_TEMP/buildx-cache-new" "$RUNNER_TEMP/buildx-cache"
+      - if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/buildx-cache
+          key: buildx-${{ runner.arch }}-${{ github.sha }}
+      - name: Save image
+        run: docker save pensieve:ci -o "$RUNNER_TEMP/pensieve-image.tar"
+      - name: Trivy secret scan
+        run: >
+          docker run --rm -v "$RUNNER_TEMP:/scan:ro" -v "$PWD:/repo" "$TRIVY_IMAGE"
+          image --input /scan/pensieve-image.tar
+          --scanners secret --image-config-scanners secret
+          --secret-config /repo/trivy-secret.yaml
+          --exit-code 1 --format sarif --output /repo/trivy-secret.sarif
+      - name: Upload Trivy SARIF
+        id: sarif
+        if: always()
+        uses: ./.github/actions/upload-sarif
+        with:
+          sarif-file: trivy-secret.sarif
+          category: Secrets
+      # Only reached when the scan passed. 1 day is the hand-off to later
+      # jobs (the image scan, e2e and, on main, publish: tickets 34, 35 and
+      # 50); on develop pushes it's kept 14 days for inspection.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pensieve-image
+          path: ${{ runner.temp }}/pensieve-image.tar
+          retention-days: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/develop') && 14 || 1 }}
+          if-no-files-found: error
+      - name: Summary
+        if: always()
+        env:
+          FINDINGS: ${{ steps.sarif.outputs.findings }}
+        run: |
+          trivy=${FINDINGS:-no SARIF}
+          icon=$([ "$trivy" = 0 ] && echo ":white_check_mark:" || echo ":x:")
+          echo "### build $icon linux/arm64 image; Trivy secret findings: $trivy" >> "$GITHUB_STEP_SUMMARY"
+
+  # Ticket 34: known vulnerabilities in the built image, both Debian packages
+  # and the npm packages in the standalone bundle (secrets were scanned in
+  # `build`). Fails on any severity, but only when a fix exists. Reviewed
+  # exceptions go in .trivyignore, with a reason and an `exp:` date Trivy
+  # enforces. Trivy can't see the distroless Node binary itself (it isn't a
+  # dpkg package); Dependabot's base-image digest bumps keep that current.
+  trivy:
+    name: trivy
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - *checkout
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pensieve-image
+          path: ${{ runner.temp }}/image
+      # One vulnerability DB per day: restored from the cache, or pulled from
+      # the public.ecr.aws mirror. As in `build`, only pushes save it (PRs can
+      # read develop's), and it's saved before the scan so no image-layer
+      # cache ends up in it.
+      - name: Cache key
+        id: day
+        run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: db-cache
+        with:
+          path: ${{ runner.temp }}/trivy-cache
+          key: trivy-db-${{ steps.day.outputs.date }}
+          restore-keys: trivy-db-
+      - name: Download vulnerability DB
+        if: steps.db-cache.outputs.cache-hit != 'true'
+        run: >
+          docker run --rm -v "$RUNNER_TEMP/trivy-cache:/cache" "$TRIVY_IMAGE"
+          image --cache-dir /cache --download-db-only --no-progress
+          --db-repository public.ecr.aws/aquasecurity/trivy-db:2
+      - if: github.event_name == 'push' && steps.db-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/trivy-cache
+          key: trivy-db-${{ steps.day.outputs.date }}
+      - name: Trivy vulnerability scan
+        run: >
+          docker run --rm -v "$RUNNER_TEMP/image:/scan:ro" -v "$RUNNER_TEMP/trivy-cache:/cache"
+          -v "$PWD:/repo" "$TRIVY_IMAGE"
+          image --input /scan/pensieve-image.tar --cache-dir /cache --skip-db-update
+          --scanners vuln --ignore-unfixed --ignorefile /repo/.trivyignore
+          --exit-code 1 --format sarif --output /repo/trivy-vuln.sarif
+      - name: Upload Trivy SARIF
+        id: sarif
+        if: always()
+        uses: ./.github/actions/upload-sarif
+        with:
+          sarif-file: trivy-vuln.sarif
+          category: Container SCA
+      - name: Summary
+        if: always()
+        env:
+          FINDINGS: ${{ steps.sarif.outputs.findings }}
+        run: .github/scripts/trivy-summary.sh
+
+  # Ticket 35: the Playwright suite against the built image itself, so a
+  # broken standalone output, Dockerfile or hydration fails here rather than
+  # in production. The app image has no migrator (ticket 41), so the database
+  # is migrated with drizzle-kit, as in local development. Every container
+  # shares the host network, so the browser reaches the app at
+  # http://localhost: the production session cookie is `Secure`, which Chrome
+  # only accepts over plain HTTP on localhost. That's also why Playwright runs from its official
+  # image via `docker run` rather than as the job container: a job container
+  # has no Docker CLI to load and start the app, nor the app on localhost.
+  e2e:
+    name: e2e
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    services:
+      postgres:
+        # Multi-arch index digest; bump tag and digest together by hand
+        # (Dependabot doesn't read images in workflow files). ci.yml's `unit`
+        # runs the same service: bump the two together.
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: pensieve
+          POSTGRES_PASSWORD: pensieve
+          POSTGRES_DB: pensieve
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pensieve -d pensieve"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      # A fresh throwaway service container per run, not a secret. Migrations
+      # and the app run as its superuser; least-privilege roles are spec 11.
+      DATABASE_URL: postgres://pensieve:pensieve@localhost:5432/pensieve
+      # Must match the @playwright/test version in package.json.
+      PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+    steps:
+      - *checkout
+      # Playwright and the global setup's DB seeding come from node_modules,
+      # mounted into the Playwright container below (both linux/arm64).
+      - uses: ./.github/actions/setup-node-deps
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pensieve-image
+          path: ${{ runner.temp }}/image
+      - name: Load image
+        run: docker load -i "$RUNNER_TEMP/image/pensieve-image.tar"
+      - name: Migrate (drizzle-kit)
+        run: npm run db:migrate
+      - name: Start app
+        run: |
+          docker run -d --name app --network host -e DATABASE_URL pensieve:ci
+          # 200 only once the app is up and its database answers.
+          curl -fsS --retry 30 --retry-delay 2 --retry-all-errors --max-time 5 http://localhost:3000/api/health
+      # --reporter overrides the config's `list` for CI only: html for the
+      # failure artifact, json for the summary.
+      - name: Playwright
+        run: >
+          docker run --rm --network host --ipc=host
+          -v "$PWD:/work" -w /work
+          -e CI -e DATABASE_URL
+          -e PLAYWRIGHT_BASE_URL=http://localhost:3000
+          -e PLAYWRIGHT_JSON_OUTPUT_FILE=test-results/results.json
+          -e PLAYWRIGHT_HTML_OPEN=never
+          "$PLAYWRIGHT_IMAGE"
+          npx playwright test --reporter=list,html,json
+      - name: App logs
+        if: failure()
+        run: docker logs app
+      # No if-no-files-found: error, since a failure before Playwright ran
+      # leaves no report; the app logs above cover that case.
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 3
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f test-results/results.json ]; then
+            # .errors holds global setup/teardown failures, which count no test.
+            jq -r '(.errors | length) as $errors | .stats | "### e2e \(if .unexpected == 0 and $errors == 0 then ":white_check_mark:" else ":x:" end) against the built image: \(.expected) passed, \(.unexpected) failed, \(.flaky) flaky, \(.skipped) skipped, \($errors) global error(s)"' \
+              test-results/results.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### e2e :x: Playwright did not run (see the image, migrate and app steps)" >> "$GITHUB_STEP_SUMMARY"
+          fi

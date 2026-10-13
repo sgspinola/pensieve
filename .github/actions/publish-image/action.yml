@@ -5,7 +5,8 @@
 # grants `id-token: write`. Expects a push to main: the ECR push role trusts
 # only refs/heads/main.
 #
-# The bytes are the build job's `docker save` tarball, unchanged: crane
+# The bytes are the build job's `docker save` tarball (image.yml's `build`
+# for the app, called by ci.yml; db.yml's `db-image`), unchanged: crane
 # pushes it without a daemon or a rebuild, so the image config in ECR (and
 # its digest) is the one the gates scanned and tested. If the image `main`
 # points at already has that config digest, nothing is pushed, so sha-*
