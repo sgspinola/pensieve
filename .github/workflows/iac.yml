@@ -1,8 +1,8 @@
 # Ticket 63: the infrastructure checks, called by ci.yml's `iac` job (its
 # header has the rules every gate follows). The check is named `iac / iac`.
-# The caller grants `id-token: write` and passes no secrets: the plan's
-# credentials are `plan` Environment secrets, which resolve here, in the job
-# that declares the Environment.
+# The caller grants `id-token: write` and passes `secrets: inherit`: the
+# plan's credentials are `plan` Environment secrets, which a called job sees
+# only when its caller hands secrets down (ci.yml's `iac` comment has why).
 name: IaC
 
 on:

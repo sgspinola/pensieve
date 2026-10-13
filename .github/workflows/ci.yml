@@ -16,7 +16,8 @@
 # - .github/actions/upload-sarif: SARIF to Code Scanning, with its count
 # - .github/actions/setup-node-deps: the shared Node bootstrap
 # - .github/actions/publish-image: the release's push and signing
-# A caller job grants the most its called jobs need and passes no secrets.
+# A caller job grants the most its called jobs need. Only `iac` passes
+# secrets (see its comment).
 # Concurrency and `publish` stay here: deploys verify the signature against
 # this file's identity.
 #
@@ -297,13 +298,17 @@ jobs:
 
   # Ticket 47's Terraform checks and prod plan; the job's comment in
   # iac.yml has the details. The plan's credentials are `plan` Environment
-  # secrets, which resolve in the called job.
+  # secrets. A called job sees only the secrets its caller hands down, its
+  # own Environment's included, hence `inherit` (the only repository secret
+  # is SEMGREP_APP_TOKEN, which iac.yml doesn't reference). The Environment
+  # itself is still chosen in iac.yml, so forks and Dependabot still get none.
   iac:
     name: iac
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/iac.yml
+    secrets: inherit
 
   # Tickets 33-35: build, secret-scan, vulnerability-scan and e2e-test the
   # app image (image.yml). `publish` releases the image it uploads.
