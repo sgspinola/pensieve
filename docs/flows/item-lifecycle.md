@@ -73,7 +73,7 @@ sequenceDiagram
 
     Browser->>Route: POST { kind, url?, title?, content?, description?, notes?, tags?, parentId? }
     alt body fails createItemBodySchema (items/route.ts:95-96, via schema.ts + parseOrThrow in lib/validation.ts — ticket 17)
-        Note right of Route: kind missing/invalid; kind=page with title<br/>and/or content missing/blank (both flagged<br/>at once if both are absent); kind!=page with<br/>url missing/blank/wrong-type; tags not<br/>string[]; description/notes/parentId/title<br/>(non-page) not a string or null
+        Note right of Route: kind missing/invalid, kind=page with title<br/>and/or content missing/blank (both flagged<br/>at once if both are absent), kind!=page with<br/>url missing/blank/wrong-type, tags not<br/>string[], description/notes/parentId/title<br/>(non-page) not a string or null
         Route-->>Browser: 400 { error: { code: "VALIDATION",<br/>message: "Validation failed", requestId, issues } }
     else body valid
         Route->>Route: getCurrentUser()
@@ -147,7 +147,7 @@ sequenceDiagram
     alt id not a valid UUID (items/[id]/route.ts:27-28, request-fields.ts idParamSchema)
         Route-->>Browser: 400 { error: { code: "VALIDATION", issues } }
     else body fails updateItemBodySchema (items/[id]/route.ts:30-31, via schema.ts + parseOrThrow in lib/validation.ts — ticket 17)
-        Note right of Route: kind present at all (even unchanged) is<br/>rejected — immutable; tags not string[];<br/>url/description/notes/content/parentId not<br/>a string or null; title present but not a string
+        Note right of Route: kind present at all (even unchanged) is<br/>rejected — immutable, tags not string[],<br/>url/description/notes/content/parentId not<br/>a string or null, title present but not a string
         Route-->>Browser: 400 { error: { code: "VALIDATION",<br/>message: "Validation failed", requestId, issues } }
     else body valid
         Route->>Route: getCurrentUser()
