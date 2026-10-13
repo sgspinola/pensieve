@@ -1,0 +1,1 @@
+ALTER TABLE "pings" ADD COLUMN "drift_probe" text;
