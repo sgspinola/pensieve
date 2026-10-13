@@ -53,6 +53,11 @@ run "log_exports" {
   }
 
   assert {
+    condition     = toset(aws_db_instance.main.enabled_cloudwatch_logs_exports) == toset(local.rds_log_exports)
+    error_message = "The instance's exports and local.rds_log_exports (which the log groups are made from) must match."
+  }
+
+  assert {
     condition = (
       toset([for g in aws_cloudwatch_log_group.rds : g.name]) == toset(["/aws/rds/instance/pensieve/postgresql", "/aws/rds/instance/pensieve/iam-db-auth-error"]) &&
       alltrue([for g in aws_cloudwatch_log_group.rds : g.retention_in_days == 30])

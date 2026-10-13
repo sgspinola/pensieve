@@ -70,8 +70,11 @@ resource "aws_db_instance" "main" {
 
   # Ticket 60: connection logging and pgaudit, and the server log
   # (connections, pgaudit's lines) and failed IAM logins in CloudWatch.
+  # A literal, not local.rds_log_exports: Semgrep's no-logging rule only
+  # recognises a list here. tests/database-logging.tftest.hcl keeps the two
+  # equal.
   parameter_group_name            = aws_db_parameter_group.main.name
-  enabled_cloudwatch_logs_exports = local.rds_log_exports
+  enabled_cloudwatch_logs_exports = ["postgresql", "iam-db-auth-error"]
 
   # Single-AZ, in the task's AZ (spec 11, user story 23).
   multi_az               = false
