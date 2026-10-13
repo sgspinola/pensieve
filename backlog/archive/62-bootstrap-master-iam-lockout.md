@@ -8,7 +8,11 @@ Spec: `backlog/specs/13-database-lifecycle.md` (user stories 23–25, "Bootstrap
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in-review
+**Status:** done
+
+**Completed:** on `feat/62-bootstrap-master-iam-lockout`
+
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/81
 
 **Fix going forward.** The master only needs the migrator membership while the bootstrap runs (ticket 42: `ALTER DEFAULT PRIVILEGES FOR ROLE pensieve_migrator` and `ALTER SCHEMA … OWNER TO pensieve_migrator` need it on PG16+). Grant it, do the work, and revoke it in the same transaction (`bootstrap.cjs` already runs the SQL in one). Default privileges and schema ownership outlive the membership, and nothing outside the transaction ever sees the master in `rds_iam`.
 
@@ -25,7 +29,7 @@ Considered and set aside: resetting the master password through RDS (AWS documen
 - [x] `db/bootstrap.sql` revokes the master's `pensieve_migrator` membership at the end of the same transaction that grants it, and stays idempotent. A comment explains the RDS PAM rule, so the grant isn't "simplified" back
 - [x] The grants test (`db/bootstrap.test.ts`) asserts the bootstrapping user ~~is no longer a member of `pensieve_migrator`, directly or through another role~~ holds none of `pensieve_migrator`'s (or `rds_iam`'s) privileges after a run, keeping only the automatic admin-only membership Postgres 16+ grants a role's creator (revised: the master can't revoke that one; see the implementation notes). It still asserts the default privileges and schema ownership the membership was needed for
 - [x] The one-time recovery above runs: the `REVOKE` succeeds, the master no longer holds `rds_iam`'s privileges, and its temporary task definition is deregistered. Ran on 2026-10-12 (task `fe44870f654345248f345f9b71e0c6c4`, log `/ecs/pensieve-db-bootstrap`, stream `db_recover/recover/…`). It printed `REVOKE ROLE`, then `rds_iam` USAGE false and MEMBER false, no memberships left in `pensieve_migrator`, and "password login works". `pensieve-db-recover-master:1` was deregistered
-- [ ] Verified on prod: a normal password-mode `scripts/db-bootstrap.sh` run succeeds, and a second run right after it succeeds too, which closes ticket 53's last item
+- [x] Verified on prod: a normal password-mode `scripts/db-bootstrap.sh` run succeeds, and a second run right after it succeeds too, which closes ticket 53's last item. Done on 2026-10-12 with the fixed image `sha-a98a8d4` (release #82): both runs logged in as the master with its password and printed "Bootstrap applied". The first registered `pensieve-db-bootstrap:3` (task `25b55c40a62041d2936e629c7466fc59`); the second reused revision 3 and registered nothing (task `2760ba957b9942c58dec72aa5b82f951`)
 - [x] Docs: the "Roles and grants" section of `docs/architecture/database-schema.md` and the bootstrap notes in `infra/prod/README.md` explain the temporary membership
 
 **Implementation notes:**

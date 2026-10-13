@@ -182,13 +182,16 @@ npm run test:e2e
 ## CI
 
 `.github/workflows/ci.yml` runs on every pull request into `develop`/`main`
-and every push to them: lint (ESLint, actionlint and hadolint), typecheck,
-unit (Vitest against a `postgres:17-alpine` service container), docs-build,
-trufflehog, semgrep, sbom, build (the arm64 image, secret-scanned before
-upload), trivy (the built image's vulnerability scan), e2e (the Playwright
-suite against that built image, migrated with `npm run db:migrate`) and iac
-(`terraform fmt`, `validate` and tflint over every config in `infra/`, plus a
-read-only plan of prod on PRs from this repository's own branches; see
+and every push to them: lint (ESLint, actionlint, hadolint, and shellcheck
+over `.github/scripts/` and `scripts/`), typecheck, unit (Vitest against a
+`postgres:17-alpine` service container), docs-build, trufflehog, semgrep and
+sbom. Two areas live in reusable workflows that `ci.yml` calls. `image`
+(`.github/workflows/image.yml`) runs build (the arm64 image, secret-scanned
+before upload), trivy (the built image's vulnerability scan) and e2e (the
+Playwright suite against that built image, migrated with
+`npm run db:migrate`). `iac` (`.github/workflows/iac.yml`) runs
+`terraform fmt`, `validate` and tflint over every config in `infra/`, plus a
+read-only plan of prod on PRs from this repository's own branches (see
 [infra/bootstrap/README.md](infra/bootstrap/README.md#ci-plan)).
 `.github/workflows/db.yml` runs on the same branches, but only when a
 database source changes (`drizzle/`, `db/`, `src/db/`, `certs/`,
@@ -198,9 +201,10 @@ DB image and runs Trivy's secret and vulnerability scans on it) and db-apply
 `postgres:17-alpine`). See
 [Deployable image](docs/architecture/deployable-image.md#building-in-ci) and
 [Testing the app image](docs/architecture/deployable-image.md#testing-the-app-image).
-The branch rulesets require each `ci.yml` gate by its job name. Adding or
-renaming one means updating the `develop` and `main` rulesets' required
-checks too. `db.yml`'s jobs aren't required, since a required check whose
+The `main` ruleset requires each `ci.yml` gate by its check name (`develop`'s
+requires none). A job in a called workflow reports as `<caller> / <callee>`:
+`iac / iac`, `image / build`, `image / trivy` and `image / e2e`. Adding or
+renaming a gate means updating the `main` ruleset's required checks too. `db.yml`'s jobs aren't required, since a required check whose
 workflow didn't trigger would block every app-only PR.
 On PRs into `main`, `release-source` also fails unless the head branch is
 `develop`.

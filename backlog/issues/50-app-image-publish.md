@@ -4,7 +4,7 @@
 
 **Blocked by:** 46 (ECR push role), 48 (`pensieve` repository)
 
-**Status:** in-review: merged; item 6 waits on a lifecycle preview after the signatures are a day old, item 7 on a release that changes no app input
+**Status:** in-review: merged; item 6 waits on a lifecycle preview after the signatures are a day old
 
 - [x] `publish` runs on every push to `main` (never on PRs), with `needs` listing every CI job of `ci.yml`
 - [x] Permissions limited to `id-token: write` and `contents: read`; authentication via OIDC only, no long-lived keys
@@ -12,7 +12,7 @@
 - [x] Keyless cosign signature stored in ECR as an OCI 1.1 referrer (not a legacy `sha256-….sig` tag); the SBOM is attached as an OCI 1.1 referrer
 - [x] Verified on the first release: image present, `cosign verify` succeeds with the expected identity and issuer, SBOM referrer listed. First release (2026-10-12, merge `3a0ad38`, PR #77): `pensieve:sha-3a0ad38` (and `main`). `cosign verify` and `cosign verify-attestation --type cyclonedx` pass against `ci.yml@refs/heads/main` and GitHub's issuer (190 components). `cosign tree` lists both referrers, with no `sha256-*.sig` tags. The deploy-app role verified it too, in the first `deploy-app` run
 - [ ] ECR lifecycle evaluation is confirmed not to remove kept images' signatures or SBOMs (adjust the ticket 48 rules if it does). A preview on 2026-10-12 selected nothing in either repository, but the referrers were minutes old, and the untagged rule only applies after a day. Re-run `aws ecr start-lifecycle-policy-preview` on both repositories after 2026-10-12
-- [ ] A later release touching no app inputs publishes no new app image
+- [x] A later release touching no app inputs publishes no new app image. Release #82 (merge `a98a8d4`, 2026-10-12) changed only DB inputs and backlog files: `publish` pushed nothing to `pensieve`, where `main` still points at `sha-3a0ad38`, while `publish-db` published `pensieve-db:sha-a98a8d4`
 
 **Implementation notes:**
 
