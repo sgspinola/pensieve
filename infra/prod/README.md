@@ -1,8 +1,8 @@
 # Prod config
 
-Tickets 48 and 49 (spec 11). Production in eu-north-1, state in the
-bootstrap config's bucket: the stateful and network foundation (48), and the
-compute and Cloudflare Tunnel ingress (49):
+Tickets 48, 49 and 59 (spec 11). Production in eu-north-1, state in the
+bootstrap config's bucket: the stateful and network foundation (48), the
+compute and Cloudflare Tunnel ingress (49), and network logging (59):
 
 | File | What |
 | --- | --- |
@@ -11,6 +11,7 @@ compute and Cloudflare Tunnel ingress (49):
 | `database.tf` | RDS PostgreSQL 17, `db.t4g.micro`, single-AZ, 20→50 GB gp3, encrypted, IAM auth, RDS-managed master password (never in state), 35-day PITR, deletion protection, final snapshot, retained backups |
 | `registry.tf` | ECR `pensieve` and `pensieve-db`: immutable tags except `main`; keep the last 50 `sha-*`, expire untagged after a day |
 | `observability.tf` | Log groups for the app, `cloudflared`, migrate and db-bootstrap (30 days); a monthly budget alerting at $10 actual and $20 forecast |
+| `network-logs.tf` | Ticket 59: a flow log on the VPC (all traffic, with the fields that see through the NAT) and Resolver query logging, both delivered to the bootstrap config's log bucket (`vpc-flow/`, `resolver/`, kept 30 days) |
 | `compute.tf` | ECS cluster and the one service (Fargate ARM64, 0.25 vCPU / 1 GB, desired count 0, 0%/100% deployments with circuit-breaker rollback, no load balancer); the first revisions of the app (app + `cloudflared` sidecar), migrate and db-bootstrap task definitions. The service ignores later task-definition and desired-count changes: the deploy workflows own them |
 | `iam.tf` | Task and execution roles: the app task may `rds-db:connect` only as `pensieve_app`, migrate only as `pensieve_migrator`; only db-bootstrap's execution role reads the RDS master secret |
 | `tunnel.tf` | Cloudflare: the tunnel, its ingress (`pensieve.fyi` → `http://localhost:3000`), the proxied apex CNAME and Full (strict) SSL; the tunnel token, built from a Terraform-generated tunnel secret and stored in Secrets Manager for the sidecar |
@@ -53,6 +54,9 @@ reads the token back from Cloudflare, which would need Tunnel Write.)
 aws login --profile pensieve-admin
 export AWS_PROFILE=pensieve-admin
 read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN
+# The logging switches, from the same GitHub variables CI's plan reads
+# ("Logging switches" below).
+export TF_VAR_network_logs_enabled="$(gh variable get NETWORK_LOGS_ENABLED --env plan)"
 cd infra/prod
 terraform init -backend-config="bucket=pensieve-tfstate-$(aws sts get-caller-identity --query Account --output text)"
 terraform plan -out prod.tfplan   # review it
@@ -67,6 +71,55 @@ lives in state and in the `pensieve/cloudflared-tunnel-token` secret.
 The instance has deletion protection, and destroying it leaves a final
 snapshot (`pensieve-final`) and the automated backups. Turn protection off in
 code (a reviewed change) before anything can remove it.
+
+## Logging switches
+
+The logs billed by volume can be switched off without editing code or
+changing anything by hand in AWS, which Terraform would see as drift. Each
+switch is a Terraform variable with no default, set from a variable in the
+`plan` GitHub Environment (Settings → Environments → plan), the one place
+its value lives:
+
+| GitHub variable | Terraform variable | Switches |
+| --- | --- | --- |
+| `NETWORK_LOGS_ENABLED` | `network_logs_enabled` | the VPC flow log and Resolver query logging (ticket 59) |
+
+CI's plan passes it to Terraform, and the apply procedure above exports it
+with `gh variable get`. To switch logs off: set the variable to `false`
+(`gh variable set NETWORK_LOGS_ENABLED --env plan --body false`), check the
+next PR's plan, then apply. Already-delivered logs stay until the log
+bucket's lifecycle rules expire them. A missing or empty variable fails the
+plan rather than falling back to either value.
+
+## Investigating network traffic
+
+Ticket 59. VPC flow logs and Resolver query logs land in the log bucket
+within about 10 minutes, and the bootstrap config's `vpc_flow` and
+`resolver` tables query them in Athena (workgroup `pensieve`, database
+`pensieve_logs`), as the admin user. What the task sent out through the NAT,
+with its real destination (on the NAT's interface, `srcaddr`/`dstaddr` are
+the NAT's own addresses; `pkt_srcaddr`/`pkt_dstaddr` are the task's and the
+real ones):
+
+```sql
+SELECT from_unixtime(start) AS at, pkt_srcaddr, pkt_dstaddr, dstport, bytes, action
+FROM pensieve_logs.vpc_flow
+WHERE year = 2026 AND month = 10 AND day = 13
+  AND flow_direction = 'egress' AND pkt_dstaddr NOT LIKE '10.%'
+ORDER BY bytes DESC
+LIMIT 50;
+```
+
+Which domains anything in the VPC resolved (the VPC ID from
+`aws ec2 describe-vpcs --filters Name=tag:Name,Values=pensieve`):
+
+```sql
+SELECT query_timestamp, srcaddr, query_name, query_type, rcode
+FROM pensieve_logs.resolver
+WHERE vpc = 'vpc-…' AND day >= '2026/10/13'
+ORDER BY query_timestamp DESC
+LIMIT 50;
+```
 
 ## Bootstrapping the database
 

@@ -38,6 +38,10 @@ infrastructure depends on, once, from the maintainer's laptop:
   - the Athena workgroup `pensieve` and Glue database `pensieve_logs` with a
     `cloudtrail` table. Partition projection over `region` and `day`, so
     there are no partitions to add
+  - (ticket 59) `vpc_flow` and `resolver` tables over prod's network logs,
+    also with partition projection (`network-logs.tf`). Filter `vpc_flow` on
+    `year`, `month` and `day`. `resolver` needs the prod VPC's ID in every
+    query (`vpc`), since this config can't know it, plus a `day`
 - the account's IAM password policy: at least 14 characters, none of the last
   24 reused, no forced expiry (NIST SP 800-63B). It applies at each user's
   next password change
@@ -84,11 +88,13 @@ The procedure for the bootstrap runbook (ticket 56).
 
    The plan should show 2 buckets (state and logs), 1 KMS key, 1 OIDC
    provider, 4 roles, 1 access analyzer, 1 trail, 1 Athena workgroup, 1
-   Glue database and table and 1 password policy: `Plan: 31 to add` from
-   scratch. On a bootstrap applied before ticket 58, it's `Plan: 12 to add,
+   Glue database and 3 tables and 1 password policy: `Plan: 33 to add` from
+   scratch. On a bootstrap applied before ticket 58, it's `Plan: 14 to add,
    1 to change, 0 to destroy`: the log bucket and its 6 settings resources,
-   the trail, the workgroup, the database, the table and the password
-   policy, plus the state bucket policy gaining the auditor.
+   the trail, the workgroup, the database, the 3 tables and the password
+   policy, plus the state bucket policy gaining the auditor. On one applied
+   before ticket 59, it's `Plan: 2 to add`: the `vpc_flow` and `resolver`
+   tables.
 
 4. **Hand the outputs on** (none is a secret): the bucket name goes into the
    prod config's backend block, and each role ARN into the GitHub variable its

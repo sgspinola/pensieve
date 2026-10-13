@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # Ticket 63: iac.yml's `terraform plan (prod)` step. Runs only in the `plan`
 # Environment, with the step's env: AWS_ROLE_ARN, AWS_REGION,
-# CLOUDFLARE_API_TOKEN, TF_VAR_budget_email and TERRAFORM_IMAGE. Writes the
-# init and plan output to $RUNNER_TEMP/plan.txt for iac-summary.sh.
+# CLOUDFLARE_API_TOKEN, TERRAFORM_IMAGE and the TF_VAR_* variables. Writes
+# the init and plan output to $RUNNER_TEMP/plan.txt for iac-summary.sh.
 set -euo pipefail
+
+# Every TF_VAR_* the step sets reaches Terraform, so adding a variable only
+# touches the step's env.
+tf_vars=()
+for name in $(compgen -e | grep '^TF_VAR_'); do
+  tf_vars+=(-e "$name")
+done
 
 mkdir -m 700 "$RUNNER_TEMP/oidc"
 # fd 3 is the step's real stdout: the mask command must reach the
@@ -18,7 +25,7 @@ tf() {
   printf '%s' "$token" > "$RUNNER_TEMP/oidc/token"
   docker run --rm -v "$PWD:/repo" -v "$RUNNER_TEMP/oidc:/oidc:ro" -w /repo/infra/prod \
     -e AWS_ROLE_ARN -e AWS_REGION -e AWS_WEB_IDENTITY_TOKEN_FILE=/oidc/token \
-    -e CLOUDFLARE_API_TOKEN -e TF_VAR_budget_email -e TF_IN_AUTOMATION=1 "$TERRAFORM_IMAGE" "$@"
+    -e CLOUDFLARE_API_TOKEN "${tf_vars[@]}" -e TF_IN_AUTOMATION=1 "$TERRAFORM_IMAGE" "$@"
 }
 # The state bucket is named after the account (infra/prod/versions.tf),
 # the same account as the plan role.

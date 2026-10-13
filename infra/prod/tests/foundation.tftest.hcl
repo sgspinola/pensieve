@@ -15,7 +15,8 @@ mock_provider "cloudflare" {
 }
 
 variables {
-  budget_email = "budget@example.com"
+  budget_email         = "budget@example.com"
+  network_logs_enabled = true
 }
 
 run "network" {
