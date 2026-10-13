@@ -1,4 +1,4 @@
-# Ticket 48 (spec 11, "Database"). The database roles, grants and bootstrap
+# Ticket 48 (spec 11, "Database"), with ticket 60's logging. The database roles, grants and bootstrap
 # are spec 13's (db/bootstrap.sql); the ECS tasks that use them are ticket
 # 49's.
 resource "aws_db_subnet_group" "main" {
@@ -7,7 +7,61 @@ resource "aws_db_subnet_group" "main" {
   subnet_ids  = [for s in aws_subnet.private : s.id]
 }
 
-resource "aws_db_instance" "main" {
+# Ticket 60: who connected as which role, and every role, grant and schema
+# change, for investigating after an incident. pgaudit's `role` and `ddl`
+# classes only: `read` and `write` would log statements on user data (note
+# contents), and so would `log_statement`, left at its default (none).
+# shared_preload_libraries is static, so it applies at the next reboot
+# (README, "Applying it"); the rest apply at once. The library list is RDS's
+# postgres17 default plus pgaudit.
+resource "aws_db_parameter_group" "main" {
+  name        = "pensieve-postgres17"
+  family      = "postgres17"
+  description = "Pensieve: connection logging and pgaudit (role, ddl)"
+
+  parameter {
+    name  = "log_connections"
+    value = "1"
+  }
+  parameter {
+    name  = "log_disconnections"
+    value = "1"
+  }
+  parameter {
+    name         = "shared_preload_libraries"
+    value        = "pg_stat_statements,pg_tle,pgaudit"
+    apply_method = "pending-reboot"
+  }
+  parameter {
+    name  = "pgaudit.log"
+    value = "role,ddl"
+  }
+
+  # A changed family or name replaces the group; the instance must switch
+  # to the new one before the old can go.
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Ticket 60: the exported logs' groups, created here with 30 days'
+# retention, like the ECS groups (observability.tf), so RDS doesn't create
+# them with none. `upgrade` isn't exported.
+locals {
+  rds_log_exports = ["postgresql", "iam-db-auth-error"]
+}
+
+resource "aws_cloudwatch_log_group" "rds" {
+  for_each = toset(local.rds_log_exports)
+
+  name              = "/aws/rds/instance/${local.rds_instance}/${each.key}"
+  retention_in_days = 30
+}
+
+# Semgrep's no-logging finding is suppressed on the resource line: its rule
+# only recognises a literal export list, and the exports below are on unless
+# var.db_log_exports_enabled deliberately switches them off.
+resource "aws_db_instance" "main" { # nosemgrep: terraform.aws.security.aws-db-instance-no-logging.aws-db-instance-no-logging
   identifier     = local.rds_instance
   engine         = "postgres"
   engine_version = "17"
@@ -16,6 +70,15 @@ resource "aws_db_instance" "main" {
   auto_minor_version_upgrade = true
   instance_class             = "db.t4g.micro"
   db_name                    = "pensieve"
+
+  # Ticket 60: connection logging and pgaudit, and the server log
+  # (connections, pgaudit's lines) and failed IAM logins in CloudWatch.
+  # var.db_log_exports_enabled switches the exports off (their volume is
+  # billed); the parameter group stays, so the logs stay on the instance and
+  # nothing needs a reboot. tests/database-logging.tftest.hcl keeps this list
+  # equal to local.rds_log_exports, which the log groups are made from.
+  parameter_group_name            = aws_db_parameter_group.main.name
+  enabled_cloudwatch_logs_exports = var.db_log_exports_enabled ? ["postgresql", "iam-db-auth-error"] : []
 
   # Single-AZ, in the task's AZ (spec 11, user story 23).
   multi_az               = false
@@ -50,4 +113,6 @@ resource "aws_db_instance" "main" {
   skip_final_snapshot       = false
   final_snapshot_identifier = "pensieve-final"
   delete_automated_backups  = false
+
+  depends_on = [aws_cloudwatch_log_group.rds]
 }

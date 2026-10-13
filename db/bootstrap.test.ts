@@ -171,6 +171,23 @@ describe("the master, after bootstrap (ticket 62)", () => {
   });
 });
 
+describe("pgaudit (ticket 60)", () => {
+  it("is skipped where the server doesn't offer it, as with the stock postgres image", async () => {
+    const [{ available }] = await sql<{ available: boolean }[]>`
+      select exists (select from pg_available_extensions where name = 'pgaudit') as available`;
+    const [{ installed }] = await sql<{ installed: boolean }[]>`
+      select exists (select from pg_extension where extname = 'pgaudit') as installed`;
+
+    expect({ available, installed }).toEqual({ available: false, installed: false });
+  });
+
+  it("is guarded by pg_available_extensions in the bootstrap SQL", () => {
+    expect(BOOTSTRAP_SQL).toMatch(
+      /IF EXISTS \(SELECT FROM pg_available_extensions WHERE name = 'pgaudit'\) THEN\s+CREATE EXTENSION IF NOT EXISTS pgaudit;/,
+    );
+  });
+});
+
 describe("re-running the bootstrap", () => {
   /** Every role, membership, owner and privilege the bootstrap could touch. */
   async function privilegeState() {
