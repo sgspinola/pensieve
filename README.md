@@ -195,10 +195,12 @@ read-only plan of prod on PRs from this repository's own branches (see
 [infra/bootstrap/README.md](infra/bootstrap/README.md#ci-plan)).
 `.github/workflows/db.yml` runs on the same branches, but only when a
 database source changes (`drizzle/`, `db/`, `src/db/`, `certs/`,
-`drizzle.config.ts`, `.dockerignore` or the workflow): db-image (builds the
-DB image and runs Trivy's secret and vulnerability scans on it) and db-apply
-(the image's migrator applies every migration to an empty
-`postgres:17-alpine`). See
+`drizzle.config.ts`, the dependency files, `tsconfig.json` or the workflow):
+db-drift (fails if `src/db/schema.ts` changed without `npm run db:generate`),
+db-image (builds the DB image and runs Trivy's secret and vulnerability scans
+on it), db-apply (the image's migrator applies every migration to an empty
+`postgres:17-alpine`, then upgrades a database migrated to `main`'s
+migrations) and db-grants (the roles-and-grants test). See
 [Deployable image](docs/architecture/deployable-image.md#building-in-ci) and
 [Testing the app image](docs/architecture/deployable-image.md#testing-the-app-image).
 The `main` ruleset requires each `ci.yml` gate by its check name (`develop`'s
