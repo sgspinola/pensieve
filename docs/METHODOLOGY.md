@@ -104,6 +104,18 @@ Revised again for ticket 43, when the migrator gained breaking-migration enforce
 
 Revised for ticket 44, when the app gained its startup schema check. `graphify explain "startup-check.ts"` placed `src/db/startup-check.ts` in the `connection.ts` community, imported dynamically by `src/instrumentation.ts`'s `register()` and importing `connect()`, `readJournal()` and `checkSchemaCompatibility()`. That's the module-structure page's new `StartupMod` node and its link to the DB image's entrypoints through the shared `src/db/journal.ts`; the run-time `sequenceDiagram`'s new startup-check step was written from source and confirmed by booting the standalone build against disposable databases.
 
+### CI pipeline
+
+Built for ticket 55. `graphify query` over the CI workflows returned only the nodes it does index: `.github/scripts/iac-plan.sh` (its own community) and the README and `deployable-image.md` sections that mention CI. It indexes none of the workflow YAML, so the jobs, their `needs`, the reusable-workflow split, the `db.yml` path filter and the artifacts' retention were all read from `.github/workflows/*.yml` and `.github/actions/*`. The required checks and ruleset details came from the live rulesets (`gh api repos/sgspinola/pensieve/rulesets/<id>`), not from the specs, which still describe the pre-ticket-63 check names in places. The flowchart is hand-drawn from those sources.
+
+### AWS architecture
+
+Built for ticket 56. graphify sees the infrastructure only through prose: spec 11 and the `infra/*/README.md` files as document nodes, and `scripts/lib/deploy.sh` and its callers as code. It doesn't parse Terraform, so every resource, CIDR, security-group rule, IAM trust and policy on the page was read from `infra/bootstrap/*.tf` and `infra/prod/*.tf`. The request-path `sequenceDiagram`, the network flowchart and the roles flowchart are hand-drawn from those files, not a Trailmark pass: they show infrastructure, not an in-code call graph. The cost section quotes spec 11's priced estimate. Cost Explorer didn't yet show the new resources' spend when the page was written.
+
+## Runbooks
+
+The pages under `docs/runbooks/` (ticket 56) are procedures, not generated content. `bootstrap.md` and `deploy.md` follow what the first real deploy actually did on 2026-10-12, as recorded in tickets 48–54 and 62, and the workflow runs' own logs (timings from `gh api .../runs/<id>/jobs`). The discrepancies found along the way were fixed in the code or the READMEs before being written down: the bootstrap's master lockout (ticket 62), the first release's TruffleHog range (#78), and the unneeded `--apply-immediately` step for the RDS parameter group (#91). `incidents.md`'s AWS queries were each run against production's data on 2026-10-13. That run showed Logs Insights can't see the one back-filled `iam-db-auth-error` entry, so that check uses `aws logs filter-log-events`. The Cloudflare audit log is a dashboard view and wasn't opened, since the agent holds no Cloudflare credentials.
+
 ## Flow pages (Trailmark)
 
 ### Login with a passkey

@@ -102,7 +102,7 @@ sequenceDiagram
         VerRoute->>Cookies: clearChallengeCookie()<br/>clearInviteTokenCookie()
         Note right of VerRoute: cleared before the outcome is even known —<br/>this ceremony attempt is single-use either way
         VerRoute->>Webauthn: redeemInvite(db, { token, response, expectedChallenge, displayName })
-        Note over Webauthn,AuthLog: ticket 61: redeemInvite wraps the steps below<br/>(registerInvitee). Any throw logs an invite_redemption<br/>failure and is rethrown; the user transaction also logs<br/>passkey_added (failure in its catch, success after commit)
+        Note over Webauthn,AuthLog: ticket 61: redeemInvite wraps the steps below<br/>(registerInvitee). Any throw logs an invite_redemption<br/>failure and is rethrown. The user transaction also logs<br/>passkey_added (failure in its catch, success after commit)
 
         Webauthn->>Webauthn: verifyRegistration(response, expectedChallenge)
         Note right of Webauthn: @simplewebauthn/server checks signature +<br/>origin + RP ID + challenge match in one call —<br/>any failure (including a thrown error, e.g.<br/>origin mismatch) maps to one UnauthorizedError
