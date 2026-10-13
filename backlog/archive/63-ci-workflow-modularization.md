@@ -4,7 +4,11 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in-review: PR #84 (https://github.com/sgspinola/pensieve/pull/84). Items 6 and 7 wait on the release that carries it
+**Status:** done
+
+**Completed:** on `feat/63-ci-workflow-modularization`
+
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/84
 
 Decisions:
 
@@ -25,5 +29,5 @@ Done when:
 - [x] Code Scanning still receives the same SARIF categories (`Semgrep`, `Secrets`, `Container SCA`). Run 38369106186 uploaded `Semgrep`, `Secrets` (Trivy and TruffleHog) and `Container SCA`
 - [x] actionlint and the new shellcheck step pass. The existing `scripts/` had no findings, so none needed fixing
 - [x] README's CI section, `docs/architecture/deployable-image.md`, and the comments in `db.yml` and the `publish-image` action that refer to `ci.yml`'s jobs are updated. Rulesets now require gates "by check name", not "by job name". The full CI architecture page stays in 55
-- [ ] `protect-main` requires the new check names, and the release PR carrying this change satisfies it
-- [ ] After that release, `publish` runs and `cosign verify` against `ci.yml@refs/heads/main` passes on the new image, or nothing is pushed because the app didn't change
+- [x] `protect-main` requires the new check names, and the release PR carrying this change satisfies it. Switched on 2026-10-13 through the rulesets API (only those four contexts changed); release PR #85 passed every required check under the new names
+- [x] After that release, `publish` runs and `cosign verify` against `ci.yml@refs/heads/main` passes on the new image, or nothing is pushed because the app didn't change. Release `600590b` (#85, CI run 38376593097): `publish` succeeded and pushed nothing, since the app image's config digest was unchanged (`sha-600590b`), so there was no new image to verify. `publish-db` published the DB image as usual
