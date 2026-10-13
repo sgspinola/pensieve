@@ -8,7 +8,7 @@
 
 **Completed:** on `feat/55-56-ci-and-aws-docs`
 
-**Pull Request:** https://github.com/sgspinola/pensieve/pull/PR5556
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/95
 
 - [x] AWS architecture page under `docs/architecture/` with request-path and network Mermaid diagrams, both images, roles and cost structure. `docs/architecture/aws-architecture.md`: a request-path sequence diagram, network and roles flowcharts, both images, compute and data, and cost (spec 11's priced estimate)
 - [x] Bootstrap runbook lists every manual prerequisite (Identity Center, Cloudflare tokens, `plan`/`prod-app`/`prod-db` Environments and secrets, Semgrep token, CodeQL, rulesets) and the first-deploy order. `docs/runbooks/bootstrap.md`. "Identity Center" became the IAM user `pensieve-admin` with `aws login`, which is what production uses (ticket 46's revision). It also covers the Cloudflare WAF rule that locks the site to the maintainer's IP until the admin passkey exists, the GitHub Actions policy and the security settings, which the list didn't name

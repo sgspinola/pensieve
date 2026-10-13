@@ -8,7 +8,7 @@
 
 **Completed:** on `feat/55-56-ci-and-aws-docs`
 
-**Pull Request:** https://github.com/sgspinola/pensieve/pull/PR5556
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/95
 
 - [x] New page under `docs/architecture/` describing both workflows, their jobs and the per-job required checks, with a Mermaid diagram. `docs/architecture/ci-pipeline.md`: both workflows, every job, the reusable-workflow check names, and which checks the rulesets require (only `protect-main` requires any), with a flowchart
 - [x] Covers Code Scanning/run-summary outputs, and `publish`/`publish-db`. "Where results go" (run summaries, SARIF categories, artifacts) and "Publishing"
