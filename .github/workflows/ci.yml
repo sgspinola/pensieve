@@ -299,16 +299,20 @@ jobs:
   # Ticket 47's Terraform checks and prod plan; the job's comment in
   # iac.yml has the details. The plan's credentials are `plan` Environment
   # secrets. A called job sees only the secrets its caller hands down, its
-  # own Environment's included, hence `inherit` (the only repository secret
-  # is SEMGREP_APP_TOKEN, which iac.yml doesn't reference). The Environment
-  # itself is still chosen in iac.yml, so forks and Dependabot still get none.
+  # own Environment's included, so the two are passed by name. This job has
+  # no Environment, so it passes empty values; in the called job, the `plan`
+  # Environment's secrets take their place. The Environment is still chosen
+  # in iac.yml, so forks and Dependabot still get none. (Not `inherit`:
+  # Semgrep blocks it, since it would hand down every repository secret.)
   iac:
     name: iac
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/iac.yml
-    secrets: inherit
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      BUDGET_EMAIL: ${{ secrets.BUDGET_EMAIL }}
 
   # Tickets 33-35: build, secret-scan, vulnerability-scan and e2e-test the
   # app image (image.yml). `publish` releases the image it uploads.

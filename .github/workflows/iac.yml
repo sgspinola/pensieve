@@ -1,12 +1,17 @@
 # Ticket 63: the infrastructure checks, called by ci.yml's `iac` job (its
 # header has the rules every gate follows). The check is named `iac / iac`.
-# The caller grants `id-token: write` and passes `secrets: inherit`: the
-# plan's credentials are `plan` Environment secrets, which a called job sees
-# only when its caller hands secrets down (ci.yml's `iac` comment has why).
+# The caller grants `id-token: write` and names the plan's two secrets:
+# they're `plan` Environment secrets, which a called job sees only when its
+# caller hands them down (ci.yml's `iac` comment has why).
 name: IaC
 
 on:
   workflow_call:
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      BUDGET_EMAIL:
+        required: false
 
 permissions:
   contents: read
