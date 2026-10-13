@@ -50,10 +50,10 @@ Each run's summary says what happened, and links the log group on a failure.
 | `deploy-app`: the new revision never turns healthy | The circuit breaker rolls back to the previous revision; the run fails and links `/ecs/pensieve-app` | Read the app log. A startup schema refusal means the app needs a `deploy-db` first |
 | `deploy-db`: migration failed or was refused | The previous revision and count are restored; nothing was migrated (one transaction); the snapshot is kept | Read `/ecs/pensieve-migrate`. A refusal names the breaking migrations: re-dispatch with `app_sha` |
 | `deploy-db`: gave up waiting for the migrator | **The app stays stopped**: the migrator may still be running | Check `/ecs/pensieve-migrate`. Once it has finished, start the app with `deploy-app` or `deploy-db` again |
-| `deploy-db`: the app didn't stabilise after migrating | The circuit breaker rolls back; on a breaking schema, the startup check keeps the old app down | Follow the rollback for a breaking migration below |
+| `deploy-db`: the app didn't stabilise after migrating | The circuit breaker rolls back; on a breaking schema, the startup check keeps the old app down | Follow the rollback for a breaking migration below, which uses the [restore runbook](./restore) |
 
 ## Rollback
 
 - **After an app-only deploy:** dispatch `deploy-app` with the previous `app_sha`. The service's previous revisions stay registered, but `deploy-app` always builds from the family's latest, so the SHA is what you choose.
 - **After an additive migration:** nothing to undo. Older apps run fine on a database ahead of them by additive migrations.
-- **After a breaking migration:** the old app can't run on the new schema. Restore the pre-deploy snapshot taken by that `deploy-db` run, then dispatch `deploy-app` with the previous `app_sha`. Restores run locally as the admin user; no GitHub role can restore.
+- **After a breaking migration:** the old app can't run on the new schema. Restore the pre-deploy snapshot taken by that `deploy-db` run ([restore runbook](./restore)), then dispatch `deploy-app` with the previous `app_sha`. Restores run locally as the admin user; no GitHub role can restore.

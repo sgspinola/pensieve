@@ -71,6 +71,7 @@ export default withMermaid({
         items: [
           { text: "Bootstrap", link: "/runbooks/bootstrap" },
           { text: "Deploy", link: "/runbooks/deploy" },
+          { text: "Restore the Database", link: "/runbooks/restore" },
           { text: "Investigating an Incident", link: "/runbooks/incidents" },
         ],
       },
