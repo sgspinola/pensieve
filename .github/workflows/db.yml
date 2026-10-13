@@ -1,7 +1,8 @@
 # Ticket 41: the database's own CI (spec 13, "`db.yml` workflow"). It builds
-# and scans the DB image (db/Dockerfile), and proves both that every
-# migration applies to an empty database and that the roles and grants work
-# (ticket 42). Unlike ci.yml, it only triggers when a database source
+# and scans the DB image (db/Dockerfile), and proves that every migration
+# applies to an empty database and on top of the last release's (ticket 45),
+# that no schema change lacks its migration (ticket 45), and that the roles
+# and grants work (ticket 42). Unlike ci.yml, it only triggers when a database source
 # changes (the paths below), so app-only changes don't pay for it.
 # That's also why its jobs aren't required checks in the develop/main
 # rulesets: a required check whose workflow never triggered would block the
@@ -50,6 +51,54 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Ticket 45: a schema change committed without its migration. drizzle-kit
+  # compares src/db/schema.ts with the committed snapshots in drizzle/meta/
+  # (not the SQL, so a hand-added breaking marker doesn't matter), and writes
+  # a new migration if they differ. Any file it writes fails the job. No
+  # database: generate never connects, but drizzle.config.ts requires a URL.
+  db-drift:
+    name: db-drift
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-deps
+      - name: drizzle-kit generate
+        env:
+          DATABASE_URL: postgres://unused@127.0.0.1:1/unused
+        # stdin closed, so a rename prompt fails instead of waiting.
+        run: npx drizzle-kit generate < /dev/null
+      - name: Check nothing was generated
+        id: check
+        run: |
+          changed=$(git status --porcelain -- drizzle)
+          if [ -n "$changed" ]; then
+            {
+              echo "files<<EOF"
+              echo "$changed"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "::error::src/db/schema.ts doesn't match the committed migrations: run npm run db:generate and commit the result"
+            exit 1
+          fi
+      - name: Summary
+        if: always()
+        env:
+          OUTCOME: ${{ job.status }}
+          FILES: ${{ steps.check.outputs.files }}
+        run: |
+          if [ "$OUTCOME" = success ]; then
+            echo "### db-drift :white_check_mark: schema.ts matches the committed migrations" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### db-drift :x: schema.ts has changes with no committed migration" >> "$GITHUB_STEP_SUMMARY"
+            if [ -n "$FILES" ]; then
+              fence='```'
+              printf '%s\n%s\n%s\n' "$fence" "$FILES" "$fence" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
   # The arm64 DB image, built natively on an arm64 runner, then scanned as
   # image.yml's build and trivy jobs (called by ci.yml) scan the app image:
   # embedded secrets (every
@@ -198,6 +247,12 @@ jobs:
   # Every migration applied from scratch by the built image's migrator, the
   # way production runs it, against a fresh Postgres. Drizzle's bookkeeping
   # table must then hold one row per journal entry.
+  #
+  # Ticket 45: then the real upgrade path, in a second database. The
+  # previous release's migrations (main's drizzle/, or on a release, main
+  # before the push), applied with drizzle-kit, then the image's migrator on
+  # top with ALLOW_BREAKING=true (.github/scripts/db-upgrade-path.sh). A
+  # migration that only works on an empty database fails here.
   db-apply:
     name: db-apply
     needs: db-image
@@ -230,6 +285,8 @@ jobs:
         with:
           name: pensieve-db-image
           path: ${{ runner.temp }}/image
+      # drizzle-kit, for the upgrade path's previous release.
+      - uses: ./.github/actions/setup-node-deps
       - name: Load image
         run: docker load -i "$RUNNER_TEMP/image/pensieve-db-image.tar"
       - name: Migrate (DB image)
@@ -248,15 +305,24 @@ jobs:
             echo "::error::$applied migration(s) recorded, but the journal lists $expected"
             exit 1
           fi
+      - name: Upgrade path
+        id: upgrade
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          BASE: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && github.event.before || 'main' }}
+        run: .github/scripts/db-upgrade-path.sh
       - name: Summary
         if: always()
         env:
           OUTCOME: ${{ job.status }}
           APPLIED: ${{ steps.check.outputs.applied || '?' }}
           EXPECTED: ${{ steps.check.outputs.expected || '?' }}
+          UPGRADE_BASE: ${{ steps.upgrade.outputs.base || '?' }}
+          UPGRADE_FROM: ${{ steps.upgrade.outputs.from || '?' }}
+          UPGRADE_APPLIED: ${{ steps.upgrade.outputs.applied || '?' }}
         run: |
           icon=$([ "$OUTCOME" = success ] && echo ":white_check_mark:" || echo ":x:")
-          echo "### db-apply $icon $APPLIED of $EXPECTED migration(s) applied to an empty database by the DB image" >> "$GITHUB_STEP_SUMMARY"
+          echo "### db-apply $icon $APPLIED of $EXPECTED migration(s) applied to an empty database by the DB image; upgraded from main's $UPGRADE_BASE ($UPGRADE_FROM, by drizzle-kit) to $UPGRADE_APPLIED by the DB image" >> "$GITHUB_STEP_SUMMARY"
 
   # Ticket 42: the roles-and-grants bootstrap (db/bootstrap.sql) run as a
   # stand-in for the RDS master user, then the migrations as the migrator,
@@ -313,14 +379,14 @@ jobs:
   # isn't re-run, the next release that touches no DB input won't publish
   # it: re-run the failed job. It needs
   # every job above, so nothing unscanned or untested is published; add any
-  # new job (e.g. ticket 45's db-drift) to `needs` too. deploy-db verifies
+  # new job to `needs` too. deploy-db verifies
   # the signature against
   # https://github.com/sgspinola/pensieve/.github/workflows/db.yml@refs/heads/main
   # (issuer https://token.actions.githubusercontent.com).
   publish-db:
     name: publish-db
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [db-image, db-apply, db-grants]
+    needs: [db-drift, db-image, db-apply, db-grants]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
