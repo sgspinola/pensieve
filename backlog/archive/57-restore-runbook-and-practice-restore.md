@@ -8,7 +8,7 @@
 
 **Completed:** on `feat/57-restore-runbook-and-practice-restore`
 
-**Pull Request:** PR_URL
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/96
 
 - [x] Restore runbook page covering point-in-time recovery vs pre-deploy snapshot, the new-instance consequence, repointing the app (including Terraform and task-definition implications) and cleanup of the old instance
 - [x] States that restores are local SSO-admin operations only, and the snapshot retention model
