@@ -16,6 +16,7 @@ import {
 export const pings = pgTable("pings", {
   id: serial("id").primaryKey(),
   message: text("message").notNull(),
+  driftProbe: text("drift_probe"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
