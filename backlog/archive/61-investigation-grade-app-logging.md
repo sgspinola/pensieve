@@ -4,11 +4,15 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** in-review
+**Status:** done
+
+**Completed:** on `feat/61-investigation-grade-app-logging`
+
+**Pull Request:** https://github.com/sgspinola/pensieve/pull/89
 
 - [x] The per-request API log line adds `clientIp` from `CF-Connecting-IP`, `userAgent` and `cfRay`. The header is only trusted because the tunnel is the only way in, and that's stated where it's read. Absent headers, as in local dev, are omitted rather than faked
 - [x] Explicit auth events, success and failure, with user ID where known and never secrets, challenges or recovery codes: passkey login, recovery-code use, invite redemption, passkey added or removed, session created, logout, and a session rejected by the proxy
-- [ ] Vitest covers the new fields and each auth event's success and failure line
+- [x] Vitest covers the new fields and each auth event's success and failure line. `src/lib/client-fields.test.ts`, `api-errors.test.ts`, `proxy.test.ts` and `src/services/auth/auth-events.test.ts` (against Postgres), all passing in PR #89's CI run 38380939756
 - [x] Matching `docs/flows/` pages updated
 
 Notes from the work:
