@@ -45,6 +45,15 @@ locals {
   # kics-scan ignore-line (the secret's name, not its value)
   tunnel_token_secret = "pensieve/cloudflared-tunnel-token"
 
+  # Ticket 59: the bootstrap config's log bucket and the two prefixes its
+  # policy lets log delivery write to (infra/bootstrap/names.tf).
+  log_bucket     = "pensieve-logs-${local.account_id}"
+  log_bucket_arn = "arn:aws:s3:::${local.log_bucket}"
+  log_prefixes = {
+    vpc_flow = "vpc-flow"
+    resolver = "resolver"
+  }
+
   # Not shared with the bootstrap config.
   domain = "pensieve.fyi"
 

@@ -11,6 +11,7 @@ mock_provider "cloudflare" {
 
 variables {
   budget_email           = "budget@example.com"
+  network_logs_enabled   = true
   db_log_exports_enabled = true
 }
 

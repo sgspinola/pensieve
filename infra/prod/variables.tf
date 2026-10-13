@@ -6,6 +6,18 @@ variable "budget_email" {
   sensitive = true
 }
 
+# Ticket 59: an off switch for the VPC flow log and Resolver query logging,
+# whose delivery is billed by volume. No default, so a plan or apply must
+# say which: the source of truth is the `plan` Environment's
+# NETWORK_LOGS_ENABLED variable, which CI's plan reads and a local apply
+# exports first (README, "Logging switches"). Forgetting it fails instead of
+# quietly turning the logs back on.
+variable "network_logs_enabled" {
+  description = "Whether prod delivers VPC flow logs and Resolver query logs to the log bucket. From the `plan` Environment's NETWORK_LOGS_ENABLED variable."
+  type        = bool
+  nullable    = false
+}
+
 # Ticket 60: an off switch for the RDS log exports to CloudWatch, whose
 # ingestion is billed by volume. No default, so a plan or apply must say
 # which: the source of truth is the `plan` Environment's

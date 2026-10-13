@@ -119,6 +119,7 @@ jobs:
           # The logging switches (infra/prod/variables.tf): `plan`
           # Environment variables, the one place each is set. A local apply
           # reads the same ones (infra/prod/README.md, "Logging switches").
+          TF_VAR_network_logs_enabled: ${{ vars.NETWORK_LOGS_ENABLED }}
           TF_VAR_db_log_exports_enabled: ${{ vars.DB_LOG_EXPORTS_ENABLED }}
         run: .github/scripts/iac-plan.sh
       - name: Summary
