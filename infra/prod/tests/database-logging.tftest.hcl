@@ -9,7 +9,8 @@ mock_provider "cloudflare" {
 }
 
 variables {
-  budget_email = "budget@example.com"
+  budget_email           = "budget@example.com"
+  db_log_exports_enabled = true
 }
 
 run "parameter_group" {
@@ -65,3 +66,24 @@ run "log_exports" {
     error_message = "Terraform must create each exported log's group, with 30 days' retention."
   }
 }
+
+# The off switch: no exports, but the parameter group (no reboot) and the
+# log groups (what was exported until then expires on its own) stay.
+run "exports_switched_off" {
+  command = apply
+
+  variables {
+    db_log_exports_enabled = false
+  }
+
+  assert {
+    condition     = length(aws_db_instance.main.enabled_cloudwatch_logs_exports) == 0
+    error_message = "With db_log_exports_enabled = false, nothing must be exported."
+  }
+
+  assert {
+    condition     = aws_db_instance.main.parameter_group_name == aws_db_parameter_group.main.name && length(aws_cloudwatch_log_group.rds) == 2
+    error_message = "Switching the exports off must keep the parameter group and the log groups."
+  }
+}
+

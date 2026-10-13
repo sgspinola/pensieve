@@ -58,7 +58,10 @@ resource "aws_cloudwatch_log_group" "rds" {
   retention_in_days = 30
 }
 
-resource "aws_db_instance" "main" {
+# Semgrep's no-logging finding is suppressed on the resource line: its rule
+# only recognises a literal export list, and the exports below are on unless
+# var.db_log_exports_enabled deliberately switches them off.
+resource "aws_db_instance" "main" { # nosemgrep: terraform.aws.security.aws-db-instance-no-logging.aws-db-instance-no-logging
   identifier     = local.rds_instance
   engine         = "postgres"
   engine_version = "17"
@@ -70,11 +73,12 @@ resource "aws_db_instance" "main" {
 
   # Ticket 60: connection logging and pgaudit, and the server log
   # (connections, pgaudit's lines) and failed IAM logins in CloudWatch.
-  # A literal, not local.rds_log_exports: Semgrep's no-logging rule only
-  # recognises a list here. tests/database-logging.tftest.hcl keeps the two
-  # equal.
+  # var.db_log_exports_enabled switches the exports off (their volume is
+  # billed); the parameter group stays, so the logs stay on the instance and
+  # nothing needs a reboot. tests/database-logging.tftest.hcl keeps this list
+  # equal to local.rds_log_exports, which the log groups are made from.
   parameter_group_name            = aws_db_parameter_group.main.name
-  enabled_cloudwatch_logs_exports = ["postgresql", "iam-db-auth-error"]
+  enabled_cloudwatch_logs_exports = var.db_log_exports_enabled ? ["postgresql", "iam-db-auth-error"] : []
 
   # Single-AZ, in the task's AZ (spec 11, user story 23).
   multi_az               = false

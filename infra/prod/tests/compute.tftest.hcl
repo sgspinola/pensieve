@@ -12,7 +12,8 @@ mock_provider "cloudflare" {
 }
 
 variables {
-  budget_email = "budget@example.com"
+  budget_email           = "budget@example.com"
+  db_log_exports_enabled = true
 }
 
 run "service" {
