@@ -1,17 +1,19 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { configure, getConfig, reset, type LogRecord } from "@logtape/logtape";
+import { configure, reset, type LogRecord } from "@logtape/logtape";
 
 /**
  * Swaps in an in-memory array-backed sink for the duration of a test,
- * capturing every "pensieve"-category record. Call `restore()` to put the
- * previous global configuration back.
+ * capturing every "pensieve"-category record. Call `restore()` to reset
+ * LogTape's configuration afterwards. It doesn't re-apply a configuration
+ * that was there before (src/lib/logging.ts's, once something like
+ * src/proxy.ts has loaded it): replacing that one closed its sinks, and
+ * LogTape can't reopen a closed file sink.
  */
 export async function useTestLogSink(): Promise<{
   records: LogRecord[];
   restore: () => Promise<void>;
 }> {
   const records: LogRecord[] = [];
-  const previousConfig = getConfig();
 
   await configure({
     contextLocalStorage: new AsyncLocalStorage(),
@@ -24,14 +26,5 @@ export async function useTestLogSink(): Promise<{
     reset: true,
   });
 
-  return {
-    records,
-    restore: async () => {
-      if (previousConfig) {
-        await configure(previousConfig);
-      } else {
-        await reset();
-      }
-    },
-  };
+  return { records, restore: () => reset() };
 }

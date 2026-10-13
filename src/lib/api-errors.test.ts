@@ -156,6 +156,43 @@ describe("withErrorHandling baseline request logging", () => {
     }
   });
 
+  it("adds the client's IP, user agent and Cloudflare ray ID (ticket 61), also to the handler's log context", async () => {
+    const { records, restore } = await useTestLogSink();
+    try {
+      const handler = withErrorHandling(async () => {
+        getLogger(["pensieve", "test"]).info("Inside the handler");
+        return NextResponse.json({ ok: true });
+      });
+      await handler(
+        new Request("http://localhost/api/test", {
+          method: "POST",
+          headers: { "cf-connecting-ip": "203.0.113.7", "user-agent": "Mozilla/5.0 (test)", "cf-ray": "8c1f-ARN" },
+        }),
+      );
+
+      const client = { clientIp: "203.0.113.7", userAgent: "Mozilla/5.0 (test)", cfRay: "8c1f-ARN" };
+      expect(records).toHaveLength(2);
+      expect(records[0].properties).toMatchObject(client);
+      expect(records[1].properties).toMatchObject({ ...client, status: 200 });
+    } finally {
+      await restore();
+    }
+  });
+
+  it("omits the client fields when the headers are absent, as in local development", async () => {
+    const { records, restore } = await useTestLogSink();
+    try {
+      const handler = withErrorHandling(async () => NextResponse.json({ ok: true }));
+      await handler(makeRequest("req-local"));
+
+      expect(records[0].properties).not.toHaveProperty("clientIp");
+      expect(records[0].properties).not.toHaveProperty("userAgent");
+      expect(records[0].properties).not.toHaveProperty("cfRay");
+    } finally {
+      await restore();
+    }
+  });
+
   it("logs with no userId when the request is unauthenticated", async () => {
     const { records, restore } = await useTestLogSink();
     try {

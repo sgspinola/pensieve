@@ -17,6 +17,7 @@ import { isUniqueViolation } from "@/lib/db-errors";
 import { getLogger } from "@/lib/logging";
 import { UnauthorizedError } from "@/services/errors";
 import { logMutationFailure, logMutationSuccess } from "@/services/mutation-log";
+import { logAuthFailure, logAuthSuccess } from "@/services/auth/auth-events";
 import { createSession, type Session, type SessionUser } from "@/services/auth/session";
 import { generateRecoveryCodes, redeemRecoveryCode } from "@/services/auth/recovery-codes";
 import { assertInviteRedeemable, claimInvite } from "@/services/auth/invites";
@@ -140,9 +141,29 @@ export interface RegistrationResult extends AuthResult {
  * Verifies a completed WebAuthn registration ceremony and creates the
  * account for it. Bootstraps the sole admin account when `users` is empty;
  * otherwise no open registration path exists — member registration is
- * driven only by an invite token (see redeemInvite).
+ * driven only by an invite token (see redeemInvite). Every attempt is an
+ * `admin_registration` auth event (ticket 61): once the admin exists, any
+ * call here is someone trying to get in.
  */
 export async function registerPasskey(
+  db: Database,
+  params: {
+    response: RegistrationResponseJSON;
+    expectedChallenge: string;
+    displayName: string;
+  },
+): Promise<RegistrationResult> {
+  try {
+    const result = await registerAdmin(db, params);
+    logAuthSuccess("admin_registration", { userId: result.user.id });
+    return result;
+  } catch (err) {
+    logAuthFailure("admin_registration", err);
+    throw err;
+  }
+}
+
+async function registerAdmin(
   db: Database,
   params: {
     response: RegistrationResponseJSON;
@@ -186,6 +207,7 @@ export async function registerPasskey(
       return insertedUser;
     });
   } catch (err) {
+    logAuthFailure("passkey_added", err);
     if (isUniqueViolation(err)) {
       logMutationFailure(
         logger,
@@ -200,6 +222,7 @@ export async function registerPasskey(
     logMutationFailure(logger, "WebAuthn user creation failed", { entity: "webauthnUsers" }, err);
     throw err;
   }
+  logAuthSuccess("passkey_added", { userId: user.id });
 
   const [session, recoveryCodes] = await Promise.all([
     createSession(db, user.id),
@@ -224,7 +247,12 @@ export async function generatePasskeyRegistrationOptionsForInvite(
   db: Database,
   params: { token: string; displayName: string },
 ): Promise<PublicKeyCredentialCreationOptionsJSON> {
-  await assertInviteRedeemable(db, params.token);
+  try {
+    await assertInviteRedeemable(db, params.token);
+  } catch (err) {
+    logAuthFailure("invite_redemption", err, { stage: "options" });
+    throw err;
+  }
   return buildRegistrationOptions(params.displayName);
 }
 
@@ -236,9 +264,29 @@ export async function generatePasskeyRegistrationOptionsForInvite(
  *
  * Verification happens before claiming for the same reason as
  * completeAccountRecovery: a cancelled/failed ceremony (a dismissed browser
- * prompt, a timeout) must not permanently burn the one-time link.
+ * prompt, a timeout) must not permanently burn the one-time link. Logs an
+ * `invite_redemption` auth event either way (ticket 61).
  */
 export async function redeemInvite(
+  db: Database,
+  params: {
+    token: string;
+    response: RegistrationResponseJSON;
+    expectedChallenge: string;
+    displayName: string;
+  },
+): Promise<RegistrationResult> {
+  try {
+    const result = await registerInvitee(db, params);
+    logAuthSuccess("invite_redemption", { userId: result.user.id });
+    return result;
+  } catch (err) {
+    logAuthFailure("invite_redemption", err);
+    throw err;
+  }
+}
+
+async function registerInvitee(
   db: Database,
   params: {
     token: string;
@@ -276,6 +324,7 @@ export async function redeemInvite(
       return insertedUser;
     });
   } catch (err) {
+    logAuthFailure("passkey_added", err);
     if (isUniqueViolation(err)) {
       logMutationFailure(
         logger,
@@ -288,6 +337,7 @@ export async function redeemInvite(
     logMutationFailure(logger, "WebAuthn user creation failed", { entity: "webauthnUsers" }, err);
     throw err;
   }
+  logAuthSuccess("passkey_added", { userId: user.id });
 
   const [session, recoveryCodes] = await Promise.all([
     createSession(db, user.id),
@@ -332,6 +382,9 @@ export async function generatePasskeyRegistrationOptionsForUser(
  * transaction as attaching the new one: recovery means the device holding
  * the old passkey is gone, so leaving it (or sessions opened from it) valid
  * would defeat the point of recovering.
+ *
+ * Logs a `recovery_code_use` auth event either way (ticket 61), with the
+ * user ID once the code has identified one.
  */
 export async function completeAccountRecovery(
   db: Database,
@@ -341,8 +394,29 @@ export async function completeAccountRecovery(
     expectedChallenge: string;
   },
 ): Promise<AuthResult> {
+  const known: { userId?: string } = {};
+  try {
+    const result = await replacePasskey(db, params, known);
+    logAuthSuccess("recovery_code_use", { userId: result.user.id });
+    return result;
+  } catch (err) {
+    logAuthFailure("recovery_code_use", err, known);
+    throw err;
+  }
+}
+
+async function replacePasskey(
+  db: Database,
+  params: {
+    code: string;
+    response: RegistrationResponseJSON;
+    expectedChallenge: string;
+  },
+  known: { userId?: string },
+): Promise<AuthResult> {
   const { credential } = await verifyRegistration(params.response, params.expectedChallenge);
   const { userId } = await redeemRecoveryCode(db, params.code);
+  known.userId = userId;
 
   let user: typeof users.$inferSelect;
   try {
@@ -381,6 +455,8 @@ export async function completeAccountRecovery(
       return row;
     });
   } catch (err) {
+    logAuthFailure("passkey_removed", err, { userId });
+    logAuthFailure("passkey_added", err, { userId });
     if (isUniqueViolation(err)) {
       logMutationFailure(
         logger,
@@ -402,6 +478,8 @@ export async function completeAccountRecovery(
   if (!user) {
     throw new UnauthorizedError("Unknown user");
   }
+  logAuthSuccess("passkey_removed", { userId });
+  logAuthSuccess("passkey_added", { userId });
 
   const session = await createSession(db, user.id);
   return {
@@ -415,9 +493,30 @@ export async function generatePasskeyLoginOptions(): Promise<PublicKeyCredential
   return generateAuthenticationOptions({ rpID, userVerification: "preferred" });
 }
 
+/**
+ * Logs a `passkey_login` auth event either way (ticket 61), with the user ID
+ * once the passkey has identified one: a failed signature on a known
+ * passkey says whose account was tried.
+ */
 export async function verifyPasskeyLogin(
   db: Database,
   params: { response: AuthenticationResponseJSON; expectedChallenge: string },
+): Promise<AuthResult> {
+  const known: { userId?: string } = {};
+  try {
+    const result = await loginWithPasskey(db, params, known);
+    logAuthSuccess("passkey_login", { userId: result.user.id });
+    return result;
+  } catch (err) {
+    logAuthFailure("passkey_login", err, known);
+    throw err;
+  }
+}
+
+async function loginWithPasskey(
+  db: Database,
+  params: { response: AuthenticationResponseJSON; expectedChallenge: string },
+  known: { userId?: string },
 ): Promise<AuthResult> {
   const { rpID, origin } = getRelyingPartyConfig();
 
@@ -429,6 +528,7 @@ export async function verifyPasskeyLogin(
   if (!storedCredential) {
     throw new UnauthorizedError("Unknown passkey credential");
   }
+  known.userId = storedCredential.userId;
 
   const verification = await verifyAuthenticationResponse({
     response: params.response,

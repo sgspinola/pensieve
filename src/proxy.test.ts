@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
+import { ensureLoggingConfigured } from "@/lib/logging";
 import { REQUEST_ID_HEADER, proxy } from "@/proxy";
+import { useTestLogSink } from "@/test/log-sink";
 
 // Covers ticket 03's checklist: proxy() must stamp every request with a
 // correlation ID (generating one when absent, preserving one supplied by an
@@ -103,4 +105,46 @@ describe("proxy health route exemption", () => {
       expect(response.status).toBe(401);
     },
   );
+});
+
+// Ticket 61: a refused session is an auth event, carrying the refused path
+// and the client fields. No cookie, so no DB query, as above.
+describe("proxy session rejection logging", () => {
+  it("logs a session_rejected failure with the path and the client's IP, user agent and ray ID", async () => {
+    await ensureLoggingConfigured();
+    const { records, restore } = await useTestLogSink();
+    try {
+      await proxy(
+        new NextRequest("https://example.com/api/items", {
+          headers: { "cf-connecting-ip": "203.0.113.7", "user-agent": "Mozilla/5.0 (test)", "cf-ray": "8c1f-ARN" },
+        }),
+      );
+    } finally {
+      await restore();
+    }
+
+    const rejections = records.filter((r) => r.properties.event === "session_rejected");
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0].level).toBe("warning");
+    expect(rejections[0].properties).toMatchObject({
+      outcome: "failure",
+      path: "/api/items",
+      reason: "No session token provided",
+      clientIp: "203.0.113.7",
+      userAgent: "Mozilla/5.0 (test)",
+      cfRay: "8c1f-ARN",
+    });
+  });
+
+  it("logs nothing for a public path", async () => {
+    await ensureLoggingConfigured();
+    const { records, restore } = await useTestLogSink();
+    try {
+      await proxy(new NextRequest("https://example.com/login"));
+    } finally {
+      await restore();
+    }
+
+    expect(records.filter((r) => r.properties.event === "session_rejected")).toEqual([]);
+  });
 });
