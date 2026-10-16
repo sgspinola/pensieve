@@ -226,6 +226,11 @@ run "budget" {
   }
 
   assert {
+    condition     = aws_budgets_budget.monthly.cost_types[0].include_subscription == false
+    error_message = "Subscription charges (e.g. Skill Builder) are excluded from the budget."
+  }
+
+  assert {
     condition = toset([for n in aws_budgets_budget.monthly.notification : {
       type        = n.notification_type
       threshold   = n.threshold
